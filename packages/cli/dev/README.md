@@ -1,0 +1,1 @@
+Moved Permanently. Redirecting to https://raw.githubusercontent.com/sst/opencode/da87c475a738d61918ec03e1dd0212e286034312/packages/cli/dev/README.md
