@@ -25,6 +25,10 @@ await packDistribution({
   binary: "dsterm",
   packagePrefix: "dsterm-",
   archive: (target) => target.startsWith("linux-"),
+  repository: {
+    type: "git",
+    url: "git+https://github.com/showlotus/dsterm.git",
+  },
 })
 if (existsSync(path.join(root, "node"))) {
   await packDistribution({
@@ -45,6 +49,7 @@ async function packDistribution(input: {
   binary: string
   packagePrefix: string
   archive: (target: string) => boolean
+  repository?: { type: string; url: string }
 }) {
   const binaries: Record<string, string> = {}
   for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: input.root })) {
@@ -83,6 +88,7 @@ async function packDistribution(input: {
         scripts: { postinstall: "node ./postinstall.mjs" },
         version,
         license: pkg.license,
+        ...(input.repository ? { repository: input.repository } : {}),
         os: ["darwin", "linux", "win32"],
         cpu: ["arm64", "x64"],
         optionalDependencies: binaries,
