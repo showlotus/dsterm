@@ -30,6 +30,7 @@
     "@agentclientprotocol/sdk": "1.6.0",
     "@clack/core": "1.0.0-alpha.1",
     "@clack/prompts": "1.0.0-alpha.1",
+    "@dsterm/service": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@opencode/client": "workspace:*",
     "@opencode/plugin": "workspace:*",

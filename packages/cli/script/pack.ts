@@ -15,13 +15,15 @@ process.chdir(dir)
 await mkdir(npmDir, { recursive: true })
 await mkdir(archiveDir, { recursive: true })
 
+const readme = path.resolve(dir, "../../README.md")
+if (existsSync(readme)) await Bun.write(path.join(root, "@showlotus/dsterm", "README.md"), Bun.file(readme))
 await packDistribution({
   root,
-  name: pkg.name,
-  command: "opencode",
-  legacyCommand: "opencode2",
-  binary: "opencode",
-  packagePrefix: "@opencode/cli-",
+  name: "@showlotus/dsterm",
+  command: "dsterm",
+  legacyCommand: "dst",
+  binary: "dsterm",
+  packagePrefix: "dsterm-",
   archive: (target) => target.startsWith("linux-"),
 })
 if (existsSync(path.join(root, "node"))) {
@@ -81,7 +83,6 @@ async function packDistribution(input: {
         scripts: { postinstall: "node ./postinstall.mjs" },
         version,
         license: pkg.license,
-        repository: { type: "git", url: "git+https://github.com/anomalyco/opencode.git" },
         os: ["darwin", "linux", "win32"],
         cpu: ["arm64", "x64"],
         optionalDependencies: binaries,
@@ -123,7 +124,7 @@ async function archive(bin: string, target: string, binary: string) {
   const output = path.join(archiveDir, `${binary}-${target}.${extension}`)
   await rm(output, { force: true })
   if (extension === "tar.gz") {
-    await $`tar --mtime=@0 --owner=0 --group=0 --numeric-owner -czf ${output} -C ${bin} ${executable}`
+    await $`tar -czf ${output} -C ${bin} ${executable}`
   }
   if (extension === "zip") await $`zip -X -q ${output} ${executable}`.cwd(bin)
   return output

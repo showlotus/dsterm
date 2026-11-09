@@ -17,7 +17,7 @@ import { NativeArch } from "../../../script/native-arch"
 import { bundledModelsSnapshot, modelsSnapshotPlugin } from "../../core/script/models-snapshot"
 
 const dir = path.resolve(import.meta.dirname, "..")
-const binary = "opencode"
+const binary = "dsterm"
 const outdir = path.resolve(
   dir,
   process.argv.find((arg) => arg.startsWith("--outdir="))?.slice("--outdir=".length) ?? "dist",
@@ -35,7 +35,13 @@ const skipWebUi = process.argv.includes("--skip-web-ui")
 const solidPlugin = createSolidTransformPlugin()
 const highlights = Script.preview ? undefined : embed(process.env.OPENCODE_RELEASE_NOTES)
 const releaseAssets = new Map<string, Promise<Map<string, string>>>()
-const modelsSnapshot = modelsSnapshotPlugin(await bundledModelsSnapshot())
+const modelsSnapshot = modelsSnapshotPlugin(await bundledModelsSnapshot().then(stripBundledProviders))
+
+function stripBundledProviders(text: string) {
+  const catalog = JSON.parse(text) as Record<string, unknown>
+  delete catalog.opencode
+  return JSON.stringify(catalog)
+}
 
 const allTargets: {
   os: string
@@ -45,16 +51,18 @@ const allTargets: {
 }[] = [
   { os: "linux", arch: "arm64" },
   { os: "linux", arch: "x64" },
-  { os: "linux", arch: "x64", avx2: false },
+  // dsterm: alpha 不发布 x64 baseline 变体，代码注释保留
+  // { os: "linux", arch: "x64", avx2: false },
   { os: "linux", arch: "arm64", abi: "musl" },
   { os: "linux", arch: "x64", abi: "musl" },
-  { os: "linux", arch: "x64", abi: "musl", avx2: false },
+  // { os: "linux", arch: "x64", abi: "musl", avx2: false },
   { os: "darwin", arch: "arm64" },
   { os: "darwin", arch: "x64" },
-  { os: "darwin", arch: "x64", avx2: false },
-  { os: "win32", arch: "arm64" },
+  // { os: "darwin", arch: "x64", avx2: false },
+  // dsterm: bun 官方无 windows-arm64 runtime 无法交叉编译，代码注释保留（win-arm64 设备走 win32-x64 模拟回退）
+  // { os: "win32", arch: "arm64" },
   { os: "win32", arch: "x64" },
-  { os: "win32", arch: "x64", avx2: false },
+  // { os: "win32", arch: "x64", avx2: false },
 ]
 
 const targets =
@@ -154,7 +162,7 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     },
   }
   const target = targetName(item)
-  const name = target.replace(binary, "cli")
+  const name = target
   const executablePath = await compileExecutable(item)
   console.log(`building ${name}`)
   const result = await Bun.build({
@@ -185,7 +193,7 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
       outfile: path.join(outdir, name, "bin", binary),
       execArgv: [
         "--smol",
-        `--user-agent=opencode/${Script.channel}/${Script.version}/cli`,
+        `--user-agent=dsterm/${Script.channel}/${Script.version}/cli`,
         "--use-system-ca",
         "--no-warnings",
         "--",
@@ -194,9 +202,10 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     },
     define: {
       OPENCODE_VERSION: `'${Script.version}'`,
-      OPENCODE_CLI_NAME: "'opencode'",
+      OPENCODE_CLI_NAME: "'dsterm'",
       OPENCODE_CHANNEL: `'${Script.channel}'`,
       OPENCODE_ARTIFACT: `'cli'`,
+      OPENCODE_AUTOUPDATE_DISABLED: `true`,
       ...(highlights ? { OPENCODE_RELEASE_HIGHLIGHTS: JSON.stringify(highlights) } : {}),
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "undefined",
       // FFF_LIBC selects the fff native lib variant: "musl" or "gnu".
@@ -216,10 +225,9 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     path.join(outdir, name, "package.json"),
     JSON.stringify(
       {
-        name: `@opencode/${name}`,
+        name: target,
         version: Script.version,
         license: "MIT",
-        repository: { type: "git", url: "git+https://github.com/anomalyco/opencode.git" },
         os: [item.os],
         cpu: [item.arch],
       },
@@ -228,6 +236,61 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     ),
   )
   await verifyArtifact(path.join(outdir, name))
+}
+
+function isFatalStatus(error: unknown) {
+  const status = (error as Error & { status?: number }).status
+  return status !== undefined && status < 500 && status !== 429
+}
+
+function httpStatusError(status: number) {
+  const error = new Error(`HTTP ${status}`) as Error & { status: number }
+  error.status = status
+  return error
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 5): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fetch(url, init)
+    } catch (error) {
+      lastError = error
+      console.log(`retrying ${url} (${attempt}/${attempts - 1}): ${error instanceof Error ? error.message : error}`)
+    }
+    await Bun.sleep(attempt * 5000)
+  }
+  throw lastError
+}
+
+async function downloadArchive(url: string, destination: string, init: RequestInit, expected: string, attempts = 5) {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const response = await fetch(url, init)
+      if (!response.ok) throw httpStatusError(response.status)
+      if (!response.body) throw new Error("empty response body")
+      // Stream to disk instead of `Bun.write(archive, response)`: passing the Response object
+      // hangs forever if it gets GC'd mid-download (https://github.com/oven-sh/bun/issues/40278).
+      const hash = createHash("sha256")
+      const sink = Bun.file(destination).writer()
+      for await (const chunk of response.body) {
+        hash.update(chunk)
+        await sink.write(chunk)
+      }
+      await sink.end()
+      const digest = hash.digest("hex")
+      if (digest !== expected) throw new Error(`checksum mismatch, got ${digest}`)
+      return
+    } catch (error) {
+      lastError = error
+      await rm(destination, { force: true })
+      if (isFatalStatus(error)) throw error
+      console.log(`retrying ${url} (${attempt}/${attempts - 1}): ${error instanceof Error ? error.message : error}`)
+    }
+    await Bun.sleep(attempt * 5000)
+  }
+  throw lastError
 }
 
 async function compileExecutable(item: (typeof allTargets)[number]) {
@@ -244,7 +307,7 @@ async function compileExecutable(item: (typeof allTargets)[number]) {
   ]
     .filter(Boolean)
     .join("-")
-  const cache = path.join(outdir, ".bun", release)
+  const cache = path.join(dir, ".cache", "bun-runtimes", release)
   const executable = path.join(cache, name, item.os === "win32" ? "bun.exe" : "bun")
   if (await Bun.file(executable).exists()) return executable
 
@@ -257,7 +320,7 @@ async function compileExecutable(item: (typeof allTargets)[number]) {
   if (!sumsUrl) throw new Error(`Bun release ${release} does not include SHASUMS256.txt`)
   const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN
   const headers = { Accept: "application/octet-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-  const [response, sums] = await Promise.all([fetch(url, { headers }), fetch(sumsUrl, { headers })])
+  const [response, sums] = await Promise.all([fetchWithRetry(url, { headers }), fetchWithRetry(sumsUrl, { headers })])
   if (!response.ok) throw new Error(`Failed to download ${name} from Bun release ${release}: ${response.status}`)
   if (!sums.ok) throw new Error(`Failed to download Bun release ${release} checksums: ${sums.status}`)
   const expected = (await sums.text())
@@ -265,19 +328,7 @@ async function compileExecutable(item: (typeof allTargets)[number]) {
     .find((line) => line.trimEnd().endsWith(`  ${name}.zip`))
     ?.split(/\s+/)[0]
   if (!expected) throw new Error(`Missing checksum for ${name}.zip in Bun release ${release}`)
-  // Stream to disk instead of `Bun.write(archive, response)`: passing the Response object
-  // hangs forever if it gets GC'd mid-download (https://github.com/oven-sh/bun/issues/40278).
-  const hash = createHash("sha256")
-  const sink = Bun.file(archive).writer()
-  for await (const chunk of response.body!) {
-    hash.update(chunk)
-    await sink.write(chunk)
-  }
-  await sink.end()
-  if (hash.digest("hex") !== expected) {
-    await rm(archive)
-    throw new Error(`Checksum mismatch for ${name}.zip in Bun release ${release}`)
-  }
+  await downloadArchive(url, archive, { headers }, expected)
   await $`unzip -oq ${archive} -d ${cache}`
   await rm(archive)
   return executable
@@ -288,7 +339,7 @@ function compileReleaseAssets(release: string) {
   if (existing) return existing
   const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN
   // Beta builds each CLI in its own job; authenticated requests avoid the per-IP limit on shared runners.
-  const pending = fetch(`https://api.github.com/repos/oven-sh/bun/releases/tags/${release}?cache=${Date.now()}`, {
+  const pending = fetchWithRetry(`https://api.github.com/repos/oven-sh/bun/releases/tags/${release}?cache=${Date.now()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
     .then(async (response) => {

@@ -1,7 +1,12 @@
 {
-  "name": "dsterm",
+  "name": "@showlotus/dsterm",
+  "version": "0.1.0-alpha.5",
   "private": true,
   "packageManager": "bun@1.4.4",
+  "scripts": {
+    "dev": "cd packages/service && bun run dev",
+    "publish:alpha": "cd packages/cli && bun run script/publish.ts"
+  },
   "workspaces": {
     "packages": [
       "packages/*"

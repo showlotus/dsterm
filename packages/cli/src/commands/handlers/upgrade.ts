@@ -1,3 +1,5 @@
+// dsterm: upgrade 功能已禁用，代码注释保留
+/*
 import { intro, log, outro, spinner } from "@clack/prompts"
 import { Effect, Option } from "effect"
 import { Commands } from "../commands"
@@ -79,3 +81,4 @@ function wrap(value: string, width: number) {
     }, [])
   })
 }
+*/

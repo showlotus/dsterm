@@ -1,11 +1,13 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { createMemo, Show } from "solid-js"
-import { useTerminalDimensions } from "@opentui/solid"
+// dsterm: Getting started 提醒已禁用，恢复时取消下行与 SidebarOnboarding 的注释
+// import { useTerminalDimensions } from "@opentui/solid"
 import { FilePath } from "../../ui/file-path"
 import { useWorkingDirectoryActions } from "../../ui/working-directory-actions"
 import { usePromptMove } from "../../component/prompt/move"
-import { hasConnectedProvider } from "../../util/connected-provider"
+// import { hasConnectedProvider } from "../../util/connected-provider"
 
+/*
 export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: string }) {
   const dimensions = useTerminalDimensions()
   const [onboarding, updateOnboarding] = props.context.storage.store("getting-started", {
@@ -73,6 +75,7 @@ export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: s
     </Show>
   )
 }
+*/
 
 function SidebarFooter(props: { context: Plugin.Context; sessionID: string }) {
   const session = createMemo(() => props.context.data.session.get(props.sessionID))
@@ -92,7 +95,8 @@ function SidebarFooter(props: { context: Plugin.Context; sessionID: string }) {
   })
   return (
     <box gap={1}>
-      <SidebarOnboarding context={props.context} sessionID={props.sessionID} />
+      {/* dsterm: Getting started 提醒已禁用 */}
+      {/* <SidebarOnboarding context={props.context} sessionID={props.sessionID} /> */}
       <Show when={directory()}>
         {(value) => (
           <box

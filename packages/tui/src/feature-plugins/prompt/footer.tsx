@@ -106,6 +106,7 @@ export function PromptFooter(props: {
               </Show>
             </box>
           </Match>
+          {/* dsterm: 暂时隐藏 shift+tab agents 提示，需要时恢复此块
           <Match when={props.showDetails && layout().shortcuts}>
             <text
               fg={interactive() ? props.context.theme.text.base : props.context.theme.text.action.primary.disabled}
@@ -116,6 +117,7 @@ export function PromptFooter(props: {
               <span style={interactive() ? { fg: props.context.theme.text.muted } : {}}>agents</span>
             </text>
           </Match>
+          */}
         </Switch>
         <Show when={props.showDetails && layout().shortcuts}>
           <text

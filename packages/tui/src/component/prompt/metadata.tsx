@@ -39,7 +39,8 @@ export function PromptMetadataRow(props: {
   return (
     <box flexDirection="row" gap={1} flexGrow={1} flexShrink={1} minWidth={0}>
       <Show
-        when={(props.mode === "shell" || props.agent) && (layout().agent || layout().model)}
+        /* dsterm: agent 隐藏后以 model 作为整行渲染条件 */
+        when={(props.mode === "shell" || props.agent || props.model) && (layout().agent || layout().model)}
         fallback={<box height={1} />}
       >
         <Show when={layout().agent}>
@@ -64,9 +65,15 @@ export function PromptMetadataRow(props: {
             </text>
             <Show when={layout().provider}>
               {(provider) => (
-                <text flexShrink={0} fg={fade(theme.text.muted, props.modelAlpha)}>
-                  {provider()}
-                </text>
+                <>
+                  {/* dsterm: provider 段补分隔符 */}
+                  <text flexShrink={0} fg={fade(theme.text.muted, props.modelAlpha)}>
+                    ·
+                  </text>
+                  <text flexShrink={0} fg={fade(theme.text.muted, props.modelAlpha)}>
+                    {provider()}
+                  </text>
+                </>
               )}
             </Show>
             <Show when={layout().variant}>

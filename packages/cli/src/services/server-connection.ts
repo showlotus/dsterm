@@ -2,10 +2,8 @@ import { Service, type Endpoint, type EnsureOptions } from "@opencode/client/eff
 import { ClientError, isUnauthorizedError, OpenCode } from "@opencode/client/promise"
 import { OPENCODE_VERSION } from "../version"
 import { Effect, Option, Redacted } from "effect"
-import { Server as ServerFlag, Standalone as StandaloneFlag } from "../commands/commands"
+import { Server as ServerFlag } from "../commands/commands"
 import { Env } from "../env"
-import { ServiceConfig } from "./service-config"
-import { Standalone } from "./standalone"
 import { errorMessage } from "../util/error"
 
 export type Args = {
@@ -17,15 +15,16 @@ export type Args = {
 
 export type Resolved = {
   readonly endpoint: Endpoint
-  readonly service?: ReturnType<typeof managedService>
+  readonly service?: {
+    readonly reconnect: () => Effect.Effect<Endpoint, unknown, never>
+    readonly restart: () => Effect.Effect<void, unknown, never>
+  }
 }
 
 export const resolve = Effect.fn("cli.server-connection.resolve")(function* (args: Args = {}) {
   const serverFlag = yield* Effect.serviceOption(ServerFlag).pipe(Effect.map(Option.flatten))
-  const standaloneFlag = yield* Effect.serviceOption(StandaloneFlag)
   const server = args.server ?? Option.getOrUndefined(serverFlag)
-  const standalone = args.standalone ?? Option.getOrElse(standaloneFlag, () => false)
-  if (server !== undefined && standalone)
+  if (server !== undefined && args.standalone)
     return yield* Effect.fail(new Error("--server and --standalone cannot be combined"))
   if (server !== undefined) {
     const password = yield* Env.password
@@ -42,31 +41,30 @@ export const resolve = Effect.fn("cli.server-connection.resolve")(function* (arg
       process.stderr.write(
         `Warning: Server at ${endpoint.url} has version ${health.version}; this client is ${OPENCODE_VERSION}. Continuing anyway.\n`,
       )
-    return { endpoint } satisfies Resolved
+    const resolved: Resolved = { endpoint, service: undefined }
+    return resolved
   }
-  if (standalone || (yield* ServiceConfig.read()).disabled === true) {
-    return { endpoint: yield* Standalone.start() } satisfies Resolved
+  const dsterm = yield* Effect.tryPromise({
+    try: () => import("@dsterm/service/server").then((module) => module.ensureService()),
+    catch: (cause) => new Error(`dsterm service failed to start: ${errorMessage(cause)}`, { cause }),
+  })
+  const resolved: Resolved = {
+    endpoint: { url: dsterm.url, auth: undefined },
+    service: {
+      reconnect: () =>
+        Effect.tryPromise({
+          try: () => import("@dsterm/service/server").then((module) => module.ensureService()),
+          catch: (cause) => new Error(`dsterm service reconnect failed: ${errorMessage(cause)}`, { cause }),
+        }).pipe(Effect.map((service) => ({ url: service.url, auth: undefined }) satisfies Endpoint)),
+      restart: () =>
+        Effect.tryPromise({
+          try: () => import("@dsterm/service/server").then((module) => module.restartService()),
+          catch: (cause) => new Error(`dsterm service restart failed: ${errorMessage(cause)}`, { cause }),
+        }).pipe(Effect.asVoid),
+    },
   }
-
-  const mismatch = args.mismatch ?? "ignore"
-  const options = yield* ServiceConfig.options({ checkVersion: mismatch !== "ignore" })
-  return {
-    endpoint: yield* resolveManaged({ ...options, onStart: args.onStart }, mismatch),
-    service: managedService(options),
-  } satisfies Resolved
+  return resolved
 })
-
-function managedService(options: EnsureOptions) {
-  const reconnectOptions = { ...options, version: undefined }
-  return {
-    reconnect: () => Service.ensure(reconnectOptions),
-    restart: () =>
-      Effect.gen(function* () {
-        yield* Service.stop({ file: options.file, pty: "handoff" })
-        yield* Service.ensure(reconnectOptions)
-      }),
-  }
-}
 
 export const shutdownPersistentPty = Effect.fn("cli.server-connection.shutdown-persistent-pty")(function* (
   options: EnsureOptions,
@@ -75,18 +73,6 @@ export const shutdownPersistentPty = Effect.fn("cli.server-connection.shutdown-p
   if (!endpoint) return
   const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
   yield* Effect.tryPromise(() => client.experimental.persistentPty.shutdown())
-})
-
-const resolveManaged = Effect.fnUntraced(function* (options: EnsureOptions, mismatch: NonNullable<Args["mismatch"]>) {
-  if (mismatch === "replace") return yield* Service.ensure(options)
-  if (mismatch === "ignore") return yield* Service.ensure({ ...options, version: undefined })
-
-  const compatible = yield* Service.discover(options)
-  if (compatible !== undefined) return compatible
-  const existing = yield* Service.discover({ ...options, version: undefined })
-  if (existing !== undefined)
-    return yield* Effect.fail(new Error("Background server version does not match this client"))
-  return yield* Service.ensure(options)
 })
 
 function connectError(endpoint: Endpoint, cause: unknown) {

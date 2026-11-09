@@ -339,8 +339,11 @@ export function Session(props: {
     setSynced(false)
     const sessionID = route.sessionID
     void (async () => {
+      // dsterm: 每次进入会话强制刷新消息（Web 端新增的消息不经事件流，sync 完成标记会阻止重新拉取）
+      data.session.message.invalidate(sessionID)
       await Promise.all([
         data.session.sync(sessionID, { children: true }),
+        data.session.message.sync(sessionID).catch(() => undefined),
         data.session.permission.sync(sessionID).catch(() => undefined),
         data.session.form.sync(sessionID).catch(() => undefined),
       ])
@@ -2036,20 +2039,21 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
       <AssistantRetry retry={props.message.retry} />
       <box paddingLeft={3} marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}>
         <text>
-          <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
+          {/* dsterm: 隐藏智能体和会话相关信息，需要时恢复下行 */}
+          {/* <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
             {Locale.titlecase(props.message.agent)}
           </span>
           <Show when={ctx.terminal.width >= 28}>
-            <span style={{ fg: theme.text.muted }}> · {model()}</span>
+            <span style={{ fg: theme.text.muted }}>{model()}</span>
           </Show>
           <Show when={duration() && (ctx.terminal.width < 28 || ctx.terminal.width >= 36)}>
             <span style={{ fg: theme.text.muted }}> · {Locale.duration(duration())}</span>
           </Show>
           <Show when={config.data.session.tps && tokensPerSecond()}>
             {(value) => <span style={{ fg: theme.text.muted }}> · {value().toFixed(1)} tok/s</span>}
-          </Show>
+          </Show> */}
           <Show when={interrupted()}>
-            <span style={{ fg: theme.text.muted }}> · interrupted</span>
+            <span style={{ fg: theme.text.muted }}>{/*  ·  */}interrupted</span>
           </Show>
         </text>
       </box>

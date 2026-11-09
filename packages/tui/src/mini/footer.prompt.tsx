@@ -125,6 +125,7 @@ type PromptInput = {
   theme: Accessor<RunFooterTheme>
   mono: Accessor<boolean>
   imagePreview?: boolean
+  shellMode?: boolean
   clipboard?: Pick<ClipboardService, "read">
   history?: Accessor<RunPrompt[]>
   queuedPrompts: Accessor<FooterQueuedPrompt[]>
@@ -528,7 +529,7 @@ export function createPromptState(input: PromptInput): PromptState {
         description: "compact older session context to free space",
       } satisfies SlashOption,
       ...EXIT_COMMANDS.map(
-        (name) => ({ kind: "slash", name, display: `/${name}`, description: "close OpenCode" }) satisfies SlashOption,
+        (name) => ({ kind: "slash", name, display: `/${name}`, description: "close dsterm" }) satisfies SlashOption,
       ),
     ]
     const hidden = new Set(builtins.map((item) => item.name))
@@ -1253,19 +1254,22 @@ export function createPromptState(input: PromptInput): PromptState {
 
   Keymap.createLayer(() => ({
     enabled: input.prompt() && !visible(),
-    commands: [
-      {
-        bind: "!",
-        title: "Shell mode",
-        group: "Prompt",
-        run() {
-          if (shell()) return false
-          if (!area || area.isDestroyed) return false
-          if (area.cursorOffset !== 0) return false
-          setShellMode(true)
-        },
-      },
-    ],
+    commands:
+      input.shellMode === false
+        ? []
+        : [
+            {
+              bind: "!",
+              title: "Shell mode",
+              group: "Prompt",
+              run() {
+                if (shell()) return false
+                if (!area || area.isDestroyed) return false
+                if (area.cursorOffset !== 0) return false
+                setShellMode(true)
+              },
+            },
+          ],
   }))
 
   Keymap.createLayer(() => ({

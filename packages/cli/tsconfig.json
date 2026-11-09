@@ -10,5 +10,5 @@
     "noUnusedLocals": true
   },
   "exclude": ["dist", "dist-node"],
-  "references": [{ "path": "../core" }]
+  "references": [{ "path": "../core" }, { "path": "../service" }]
 }

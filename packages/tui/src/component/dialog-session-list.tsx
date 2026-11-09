@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, onMount, Show, type JSX } from "solid-js"
+import { createStore } from "solid-js/store"
 import path from "path"
 import type { SessionInfo } from "@opencode/client"
 import { Project } from "@opencode/schema/project"
@@ -49,6 +50,14 @@ export function DialogSessionList() {
     activeLocation.ref ??
     data.location.default()
 
+  // dsterm: 触底无限加载的累积页（云端 fetch_page 分页）
+  const [extraPages, setExtraPages] = createStore<{
+    sessions: SessionInfo[]
+    cursor?: string
+    loading: boolean
+    done: boolean
+  }>({ sessions: [], cursor: undefined, loading: false, done: false })
+
   const [searchResults, { mutate: setSearchResults }] = createResource(
     () => ({
       query: search().trim(),
@@ -60,6 +69,7 @@ export function DialogSessionList() {
         if (!data.location.info(location)) await data.location.sync(location)
         const current = data.location.info(location)
         if (!current) throw new Error("Location unavailable")
+        setExtraPages({ sessions: [], cursor: undefined, loading: false, done: false })
         const response = await client.api.session.list({
           ...(allProjects
             ? {}
@@ -74,14 +84,51 @@ export function DialogSessionList() {
           order: "desc",
           parentID: null,
         })
-        return { query, allProjects, sessions: response.data, error: undefined }
+        return {
+          query,
+          allProjects,
+          sessions: response.data,
+          cursor: response.cursor.next ?? undefined,
+          error: undefined,
+        }
       } catch (error) {
         // A transient transport failure must degrade search, not crash the TUI
         // through the root ErrorBoundary when the errored resource is read.
-        return { query, allProjects, sessions: [] as SessionInfo[], error }
+        return { query, allProjects, sessions: [] as SessionInfo[], cursor: undefined, error }
       }
     },
   )
+
+  const loadMore = () => {
+    const cursor = searchResults.latest?.cursor ?? extraPages.cursor
+    if (extraPages.loading || extraPages.done || !cursor || filter().trim()) return
+    const location = pickerLocation()
+    const current = location ? data.location.info(location) : undefined
+    setExtraPages("loading", true)
+    void client.api.session
+      .list({
+        ...(allProjects() || !current
+          ? {}
+          : current.project.id === Project.ID.global
+            ? { directory: current.directory }
+            : {
+                project: current.project.id,
+                subpath: path.relative(current.project.directory, current.directory).replaceAll("\\", "/"),
+              }),
+        limit: 50,
+        order: "desc",
+        parentID: null,
+        cursor,
+      })
+      .then((response) => {
+        const merged = [...extraPages.sessions, ...response.data]
+        const seen = new Set<string>()
+        const deduped = merged.filter((session) => (seen.has(session.id) ? false : (seen.add(session.id), true)))
+        const next = response.cursor.next ?? undefined
+        setExtraPages({ sessions: deduped, cursor: next, loading: false, done: !next })
+      })
+      .catch(() => setExtraPages("loading", false))
+  }
 
   const currentSessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
   const localSessions = createMemo(() => {
@@ -106,7 +153,11 @@ export function DialogSessionList() {
     if (searchResults.loading) return searchResults.latest?.sessions ?? []
     const result = searchResults()
     if (result?.query !== query || result.allProjects !== allProjects() || result.error) return local
-    return result.sessions
+    if (!extraPages.sessions.length) return result.sessions
+    const seen = new Set<string>()
+    return [...result.sessions, ...extraPages.sessions].filter((session) =>
+      seen.has(session.id) ? false : (seen.add(session.id), true),
+    )
   })
   const searchState = createMemo(() => {
     const query = filter().trim()
@@ -212,6 +263,7 @@ export function DialogSessionList() {
         !allProjects() && currentProjectName() ? `Search sessions in ${currentProjectName()}` : "Search sessions"
       }
       options={options()}
+      onLoadMore={loadMore}
       skipFilter={true}
       current={currentSessionID()}
       onFilter={(query) => {
@@ -246,6 +298,9 @@ export function DialogSessionList() {
       }
       onMove={() => setToDelete(undefined)}
       onSelect={(option) => {
+        // dsterm: 从列表打开时强制刷新消息（同一会话重复打开时 route 不变、进入 effect 不重跑）
+        data.session.message.invalidate(option.value)
+        void data.session.message.sync(option.value).catch(() => undefined)
         route.navigate({ type: "session", sessionID: option.value })
         dialog.clear()
       }}

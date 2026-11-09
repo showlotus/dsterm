@@ -77,6 +77,7 @@ import { DialogHelp } from "./ui/dialog-help"
 import { DialogAgent } from "./component/dialog-agent"
 import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogOpen, DialogOpenKey, moveOpenSession } from "./component/dialog-open"
+import { DialogDstermLogin } from "./component/dialog-dsterm-login"
 import { SessionTabs } from "./component/session-tabs"
 import { clampSessionTabsWidth, sessionTabsFitVertically, SESSION_SIDEBAR_WIDTH } from "./ui/layout"
 import { createPaneResize } from "./ui/pane-resize"
@@ -96,7 +97,7 @@ import { openUrl } from "@opencode/util/open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { Config, ConfigProvider, useConfig } from "./config"
 import { newSessionLocation } from "./config/new-session-location"
-import { UpdateNotificationProvider, useUpdateNotification, type UpdateSource } from "./context/update-notification"
+import { UpdateNotificationProvider /* , useUpdateNotification */, type UpdateSource } from "./context/update-notification"
 import { PluginProvider, usePlugin, type PackageSource } from "./plugin/context"
 import { localPluginDirectories } from "./plugin/discovery"
 import { PluginRoute, Slot } from "./plugin/render"
@@ -164,7 +165,7 @@ const appBindingCommands = [
   "provider.connect",
   "opencode.settings",
   "opencode.status",
-  "opencode.update",
+  // "opencode.update",
   "server.pair",
   "service.restart",
   "location.reload",
@@ -173,7 +174,7 @@ const appBindingCommands = [
   "theme.switch_mode",
   "theme.mode.lock",
   "help.show",
-  "docs.open",
+  // "docs.open",
   "diff.open",
   "app.debug",
   "app.console",
@@ -289,7 +290,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
             }),
         )
       })
-      renderer.setMaxListeners(15)
+      renderer.setMaxListeners(30)
       const clipboard = yield* Effect.acquireRelease(
         Effect.sync(() => createTuiClipboard(renderer)),
         (clipboard) =>
@@ -506,7 +507,7 @@ function App() {
   const event = useEvent()
   const client = useClient()
   const toast = useToast()
-  const updater = useUpdateNotification()
+  // const updater = useUpdateNotification()
   const theme = useTheme()
   const { mode, supports, setMode, locked, lock, unlock, afterPaint } = useThemes()
   const data = useData()
@@ -641,23 +642,23 @@ function App() {
     if (!terminalTitleEnabled()) return
 
     if (route.data.type === "home") {
-      setTerminalTitle(renderer, "OpenCode")
+      setTerminalTitle(renderer, "dsterm")
       return
     }
 
     if (route.data.type === "session") {
       const title = session?.title
       if (!title || isFallbackTitle(title)) {
-        setTerminalTitle(renderer, "OpenCode")
+        setTerminalTitle(renderer, "dsterm")
         return
       }
 
-      setTerminalTitle(renderer, `OC | ${title.length > 40 ? title.slice(0, 37) + "…" : title}`)
+      setTerminalTitle(renderer, `DS | ${title.length > 40 ? title.slice(0, 37) + "…" : title}`)
       return
     }
 
     if (route.data.type === "plugin") {
-      setTerminalTitle(renderer, `OC | ${route.data.name}`)
+      setTerminalTitle(renderer, `DS | ${route.data.name}`)
     }
   })
 
@@ -1059,17 +1060,20 @@ function App() {
         },
         category: "System",
       },
+      // dsterm: /update 功能已禁用，代码注释保留
+      /*
       ...(updater.open
         ? [
             {
               name: "opencode.update",
-              title: "Update OpenCode",
+              title: "Update dsterm",
               slash: { name: "update" },
               run: () => updater.open?.("manual"),
               category: "System",
             },
           ]
         : []),
+      */
       {
         name: "server.pair",
         title: "Pair device",
@@ -1165,12 +1169,23 @@ function App() {
         },
         category: "System",
       },
+      // dsterm: docs 外链已禁用，代码注释保留
+      /*
       {
         name: "docs.open",
         title: "Open docs",
         run: () => {
           openUrl("https://opencode.ai/v2/docs").catch(() => {})
           dialog.clear()
+        },
+        category: "System",
+      },
+      */
+      {
+        name: "dsterm.login",
+        title: "Configure DeepSeek credentials",
+        run: () => {
+          DialogDstermLogin.show(dialog)
         },
         category: "System",
       },

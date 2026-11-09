@@ -41,6 +41,8 @@ export interface DialogSelectProps<T> {
   onMove?: (option: DialogSelectOption<T>) => void
   onFilter?: (query: string) => void
   onSelect?: (option: DialogSelectOption<T>) => void
+  /** dsterm: 滚动接近列表底部时触发，用于无限加载 */
+  onLoadMore?: () => void
   onCancel?: () => void
   skipFilter?: boolean
   search?: (query: string) => readonly DialogSelectOption<T>[]
@@ -274,7 +276,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const height = createMemo(() => Math.min(rows(), limit()) - (ellipsis() ? 1 : 0))
   function updateMoreBelow() {
     if (!scroll || scroll.isDestroyed) return
-    setMoreBelow(scroll.scrollTop + scroll.viewport.height < scroll.scrollHeight)
+    const bottomGap = scroll.scrollHeight - (scroll.scrollTop + scroll.viewport.height)
+    setMoreBelow(bottomGap > 0)
+    if (props.onLoadMore && bottomGap <= 2) props.onLoadMore()
   }
 
   const selected = createMemo(() => flat()[store.selected])

@@ -147,6 +147,9 @@ export const Info = Schema.Struct({
       image_preview: Schema.optional(Schema.Boolean).annotate({
         description: "Show image attachment previews above the prompt input",
       }),
+      shell_mode: Schema.optional(Schema.Boolean).annotate({
+        description: "Toggle shell mode by typing ! as the first prompt character",
+      }),
     }),
   ).annotate({ description: "Prompt input behavior" }),
   session: Schema.optional(
@@ -249,7 +252,7 @@ export const Info = Schema.Struct({
   }),
   animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
   highlights: Schema.optional(Schema.Boolean).annotate({
-    description: "Show the release highlights once after OpenCode updates",
+    description: "Show the release highlights once after dsterm updates",
   }),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable terminal mouse capture" }),
   cursor: Schema.optional(Cursor),

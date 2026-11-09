@@ -1,3 +1,5 @@
+// dsterm: upgrade 功能已禁用，代码注释保留
+/*
 import { describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
@@ -119,3 +121,4 @@ async function cli(args: string[], env: Record<string, string> = {}, entry = "fi
     await rm(root, { recursive: true, force: true })
   }
 }
+*/

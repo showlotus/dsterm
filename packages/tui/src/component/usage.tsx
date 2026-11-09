@@ -266,7 +266,7 @@ export function useLimitNotice(message: () => SessionMessageAssistant) {
       value.model.id
     if (error.type === "provider.go-limit")
       return {
-        title: `OpenCode Go ${[goLimitName(error), "usage limit reached"].filter(Boolean).join(" ")}`,
+        title: `dsterm Go ${[goLimitName(error), "usage limit reached"].filter(Boolean).join(" ")}`,
         body: `${resets}Switch to a free model with`,
         key: shortcut() ?? "/models",
         link: { label: "Or turn on Extra Usage on your Go page to keep going now:", href: goLimitLink(error) },
@@ -282,7 +282,7 @@ export function useLimitNotice(message: () => SessionMessageAssistant) {
     if (error.status === 402 && limits.served(value.model.providerID))
       return {
         title: `${limits.info()?.workspace.name ?? "Your workspace"} is out of credits`,
-        body: "Paid models are paused until an admin adds credits in OpenCode Console.",
+        body: "Paid models are paused until an admin adds credits in dsterm Console.",
       }
     return undefined
   })

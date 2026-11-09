@@ -974,17 +974,20 @@ export function Prompt(props: PromptProps) {
           input?.visualCursor.offset === 0
         )
       })(),
-      commands: [
-        {
-          bind: "!",
-          title: "Shell mode",
-          group: "Prompt",
-          run: () => {
-            setStore("placeholder", randomIndex(shell().length))
-            setStore("mode", "shell")
-          },
-        },
-      ],
+      commands:
+        config.prompt?.shell_mode === false
+          ? []
+          : [
+              {
+                bind: "!",
+                title: "Shell mode",
+                group: "Prompt",
+                run: () => {
+                  setStore("placeholder", randomIndex(shell().length))
+                  setStore("mode", "shell")
+                },
+              },
+            ],
     }
   })
 
@@ -1854,10 +1857,11 @@ export function Prompt(props: PromptProps) {
               syntaxStyle={syntax()}
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
+              {/* dsterm: 隐藏 agent 名与权限指示，需要时恢复 agent={agentLabel()} 与 auto={local.permission.mode === "autoaccept"} */}
               <PromptMetadataRow
                 mode={store.mode}
-                agent={agentLabel()}
-                auto={local.permission.mode === "autoaccept"}
+                agent={undefined}
+                auto={false}
                 model={promptDisplay().modelLabel}
                 provider={promptDisplay().providerLabel}
                 variant={promptDisplay().variant}

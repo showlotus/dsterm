@@ -4,3 +4,6 @@ out/
 .DS_Store
 *.log
 *.tsbuildinfo
+.zcode/
+packages/cli/.cache/
+*.tmp.ts
