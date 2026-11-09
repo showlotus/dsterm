@@ -895,6 +895,7 @@ const routes = {
     }
     return json(messageResponse(p.id, order))
   },
+  "GET /api/dsterm/credentials": () => json({ configured: Boolean(creds) }),
   "POST /api/dsterm/credentials": async (req) => {
     const body = await req.json().catch(() => ({}))
     const userToken = typeof body.userToken === "string" ? body.userToken.trim() : ""

@@ -64,6 +64,7 @@ import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
+import { dstermAuthed, syncDstermAuth } from "./component/dsterm-auth"
 import { DialogMcp } from "./component/dialog-mcp"
 import { DialogUsage } from "./component/usage"
 import { DialogStatus } from "./component/dialog-status"
@@ -750,6 +751,10 @@ function App() {
   })
 
   const connected = useConnected()
+  createEffect(() => {
+    if (client.connection.status() !== "connected") return
+    void syncDstermAuth(client.url)
+  })
   const appCommands = createMemo(() =>
     [
       {
@@ -1020,6 +1025,8 @@ function App() {
         name: "provider.connect",
         title: "Connect an integration",
         suggested: !connected(),
+        // dsterm: 集成列表恒为空，面板入口无意义（/connect slash 保留）
+        palette: undefined,
         slash: { name: "connect" },
         run: () => {
           dialog.replace(() => (
@@ -1184,6 +1191,7 @@ function App() {
       {
         name: "dsterm.login",
         title: "Configure DeepSeek credentials",
+        suggested: () => !dstermAuthed(),
         run: () => {
           DialogDstermLogin.show(dialog)
         },

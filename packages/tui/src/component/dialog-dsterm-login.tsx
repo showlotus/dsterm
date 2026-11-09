@@ -5,6 +5,7 @@ import { useToast } from "../ui/toast"
 import { useTheme } from "../context/theme"
 import { Link } from "../ui/link"
 import { errorMessage } from "../util/error"
+import { syncDstermAuth } from "./dsterm-auth"
 
 function tokenDescription() {
   const theme = useTheme().surface("dialog")
@@ -61,6 +62,7 @@ export function DialogDstermLogin() {
             .then(async (resp) => {
               const body = await resp.json().catch(() => ({}))
               if (!resp.ok) throw new Error(body?.message ?? `HTTP ${resp.status}`)
+              await syncDstermAuth(url)
               dialog.clear()
               toast.show({
                 message: body?.warning ? `Credentials saved. ${body.warning}` : "Credentials saved and applied",
