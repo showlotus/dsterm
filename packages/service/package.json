@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/index.ts --tui"
+    "dev": "bun run src/index.ts --tui",
+    "test": "bun test"
   },
   "exports": {
     ".": "./src/index.ts",

@@ -23,6 +23,7 @@ import {
   renameChatSession,
   uploadFileAndWait,
   stopStream,
+  RESPONSE_TYPES,
   type Credentials,
   type SearchResult,
 } from "./deepseek"
@@ -135,7 +136,7 @@ function convertHistory(items: { message_id: number; role: string; status: strin
     for (const f of m.fragments ?? []) {
       if (f.type === "THINK") {
         if (f.content) content.push({ type: "reasoning", text: f.content, time: { created, completed } })
-      } else if (f.type === "RESPONSE") {
+      } else if (RESPONSE_TYPES.has(f.type)) {
         if (f.content) content.push({ type: "text", text: f.content, time: { created, completed } })
       } else if (f.type === "TOOL_SEARCH" || f.type === "SEARCH") {
         searchSeq++

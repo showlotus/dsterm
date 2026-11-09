@@ -360,9 +360,18 @@ export type StreamEvent =
   | { type: "update-session" }
 
 const FRAG_THINK = "THINK"
-const FRAG_RESPONSE = "RESPONSE"
+export const RESPONSE_TYPES = new Set(["RESPONSE", "TEMPLATE_RESPONSE"])
 const FRAG_SEARCH = "TOOL_SEARCH"
 const SEARCH_TYPES = new Set([FRAG_SEARCH, "SEARCH"])
+
+const unhandledPaths = new Set<string>()
+
+function logUnhandled(path: string, op: string) {
+  const key = `${path}|${op}`
+  if (unhandledPaths.has(key)) return
+  unhandledPaths.add(key)
+  console.log(`[dsterm] 未处理的 SSE 字段: path=${path} op=${op}`)
+}
 
 const searchQueries = (frag: any): string[] =>
   Array.isArray(frag?.queries)
@@ -411,23 +420,28 @@ class PatchState {
     return events
   }
 
+  private appendFragments(items: any[], events: StreamEvent[]) {
+    for (const item of items) {
+      const ty = item?.type
+      if (!ty) continue
+      this.fragments.push(ty)
+      if (SEARCH_TYPES.has(ty)) {
+        events.push({ type: "search-start", queries: searchQueries(item) })
+        const builtin = searchResults(item?.results)
+        if (builtin.length) events.push({ type: "search-results", results: builtin })
+      }
+      const content = typeof item?.content === "string" ? item.content : ""
+      if (content && ty === FRAG_THINK) events.push({ type: "think-delta", content })
+      if (content && RESPONSE_TYPES.has(ty)) events.push({ type: "content-delta", content })
+    }
+  }
+
   private applySnapshot(response: any, events: StreamEvent[]) {
     if (typeof response.status === "string") this.status = response.status
     if (typeof response.accumulated_token_usage === "number") this.tokens = response.accumulated_token_usage
     if (Array.isArray(response.fragments)) {
       this.fragments = []
-      for (const frag of response.fragments) {
-        const ty = frag.type
-        const content = typeof frag.content === "string" ? frag.content : ""
-        this.fragments.push(ty)
-        if (SEARCH_TYPES.has(ty)) {
-          events.push({ type: "search-start", queries: searchQueries(frag) })
-          const builtin = searchResults(frag?.results)
-          if (builtin.length) events.push({ type: "search-results", results: builtin })
-        }
-        if (content && ty === FRAG_THINK) events.push({ type: "think-delta", content })
-        if (content && ty === FRAG_RESPONSE) events.push({ type: "content-delta", content })
-      }
+      this.appendFragments(response.fragments, events)
     }
   }
 
@@ -445,7 +459,7 @@ class PatchState {
       const ty = this.fragments[this.fragments.length - 1]
       if (typeof v === "string" && ty) {
         if (ty === FRAG_THINK) events.push({ type: "think-delta", content: v })
-        if (ty === FRAG_RESPONSE) events.push({ type: "content-delta", content: v })
+        if (RESPONSE_TYPES.has(ty)) events.push({ type: "content-delta", content: v })
       }
       return
     }
@@ -456,21 +470,24 @@ class PatchState {
       }
       return
     }
-    if ((p === "response/fragments" || p === "fragments") && op === "APPEND" && Array.isArray(v)) {
-      for (const item of v) {
-        const ty = item?.type
-        if (!ty) continue
-        this.fragments.push(ty)
-        if (SEARCH_TYPES.has(ty)) {
-          events.push({ type: "search-start", queries: searchQueries(item) })
-          const builtin = searchResults(item?.results)
-          if (builtin.length) events.push({ type: "search-results", results: builtin })
+    if (p === "response/fragments" || p === "fragments") {
+      const items = Array.isArray(v) ? v : [v]
+      if (op === "APPEND") {
+        this.appendFragments(items, events)
+        return
+      }
+      if (op === "SET") {
+        const known = Math.min(items.length, this.fragments.length)
+        for (let i = 0; i < known; i++) {
+          const ty = items[i]?.type
+          if (ty) this.fragments[i] = ty
         }
-        const content = typeof item?.content === "string" ? item.content : ""
-        if (content && ty === FRAG_THINK) events.push({ type: "think-delta", content })
-        if (content && ty === FRAG_RESPONSE) events.push({ type: "content-delta", content })
+        this.appendFragments(items.slice(known), events)
+        if (items.length < this.fragments.length) this.fragments.length = items.length
+        return
       }
     }
+    logUnhandled(path, op)
   }
 }
 
