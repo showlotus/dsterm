@@ -1,3 +1,5 @@
+<p></p>
+
 <p align="center">
   <picture>
     <source srcset="./logo-dark.png" media="(prefers-color-scheme: dark)">
