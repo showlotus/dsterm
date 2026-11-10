@@ -1,5 +1,3 @@
-<h1><p align="center">DST</p></h1>
-
 <p align="center">
   <picture>
     <source srcset="./logo-dark.png" media="(prefers-color-scheme: dark)">
@@ -8,7 +6,7 @@
   </picture>
 </p>
 
-Run **DeepSeek Web** in the terminal, using the [opencode](https://github.com/sst/opencode) TUI.
+<p align="center"><i>Run <b>DeepSeek Web</b> in the terminal, using the <a href="https://github.com/sst/opencode" target="_blank">opencode</a> TUI.</i></p>
 
 dsterm is a thin bridge, not an agent: the opencode TUI provides the interface, and a local
 service forwards your messages to your own DeepSeek Web session, then streams the reply back
