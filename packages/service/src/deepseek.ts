@@ -1,5 +1,7 @@
 // ── DeepSeek Web 协议层（移植自 ds-free-api ds_core，GPL 注意：行为对齐、代码重写） ──
 
+import { log } from "./log"
+
 export const API_BASE = "https://chat.deepseek.com/api/v0"
 export const WASM_URL = "https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm"
 export const USER_AGENT =
@@ -370,7 +372,7 @@ function logUnhandled(path: string, op: string) {
   const key = `${path}|${op}`
   if (unhandledPaths.has(key)) return
   unhandledPaths.add(key)
-  console.log(`[dsterm] 未处理的 SSE 字段: path=${path} op=${op}`)
+  log(`[dsterm] 未处理的 SSE 字段: path=${path} op=${op}`)
 }
 
 const searchQueries = (frag: any): string[] =>
@@ -392,57 +394,119 @@ const searchResults = (v: any): SearchResult[] =>
         }))
     : []
 
+type TrackedFragment = { type: string; seen: number }
+
+const IGNORED_PATHS = new Set([
+  "content",
+  "references",
+  "conversation_mode",
+  "quasi_status",
+  "response/conversation_mode",
+  "response/quasi_status",
+  "response/has_pending_fragment",
+  "has_pending_fragment",
+])
+
+function ignoredPath(p: string): boolean {
+  if (IGNORED_PATHS.has(p)) return true
+  return /^response\/fragments\/-?\d+\/(elapsed_secs|status|references|results|content|queries)$/.test(p)
+}
+
 class PatchState {
   path?: string
   op?: string
   status?: string
   tokens?: number
-  fragments: string[] = []
+  tracked: TrackedFragment[] = []
 
   apply(data: any): StreamEvent[] {
+    const explicitPath = data?.p !== undefined
+    if (explicitPath) this.path = String(data.p).replace(/^\//, "")
+    if (data?.o !== undefined) this.op = String(data.o)
+    const v = data?.v
+    if (v === undefined) return []
     const events: StreamEvent[] = []
-    if (data.p !== undefined) this.path = data.p
-    if (data.o !== undefined) this.op = data.o
-    const op = this.op ?? "SET"
-    const path = this.path ?? ""
-    const v = data.v
-    if (v === undefined) return events
-
-    if (path === "" && v && typeof v === "object" && v.response) {
-      this.applySnapshot(v.response, events)
-      return events
-    }
-    if (op === "BATCH" && Array.isArray(v)) {
-      for (const item of v) events.push(...this.apply(item))
-      return events
-    }
-    this.applyPath(path, op, v, events)
+    this.applyValue(this.path ?? "", this.op ?? "SET", v, events, explicitPath)
     return events
   }
 
-  private appendFragments(items: any[], events: StreamEvent[]) {
-    for (const item of items) {
-      const ty = item?.type
-      if (!ty) continue
-      this.fragments.push(ty)
-      if (SEARCH_TYPES.has(ty)) {
-        events.push({ type: "search-start", queries: searchQueries(item) })
-        const builtin = searchResults(item?.results)
-        if (builtin.length) events.push({ type: "search-results", results: builtin })
-      }
-      const content = typeof item?.content === "string" ? item.content : ""
-      if (content && ty === FRAG_THINK) events.push({ type: "think-delta", content })
-      if (content && RESPONSE_TYPES.has(ty)) events.push({ type: "content-delta", content })
+  private resolveInner(base: string, p: string): string {
+    if (p.startsWith("/")) return p.slice(1)
+    if (p === "response" || p.startsWith("response/")) return p
+    return base ? `${base}/${p}` : p
+  }
+
+  private isOpsArray(v: any): boolean {
+    return (
+      Array.isArray(v) &&
+      v.length > 0 &&
+      v.every((item: any) => item !== null && typeof item === "object" && !Array.isArray(item) && typeof item.p === "string")
+    )
+  }
+
+  private applyValue(path: string, op: string, v: any, events: StreamEvent[], explicit: boolean) {
+    if (path === "" && v && typeof v === "object" && !Array.isArray(v) && v.response) {
+      this.applySnapshot(v.response, events)
+      return
     }
+    if (this.isOpsArray(v)) {
+      const base = explicit || !path.includes("/") ? path : path.slice(0, path.lastIndexOf("/"))
+      let lastPath = path
+      let lastOp = op
+      for (const item of v) {
+        lastPath = this.resolveInner(base, item.p)
+        if (item.o !== undefined) lastOp = String(item.o)
+        else if (lastOp === "BATCH") lastOp = "SET"
+        if (item.v !== undefined) this.applyValue(lastPath, lastOp, item.v, events, true)
+      }
+      this.path = lastPath
+      this.op = lastOp
+      return
+    }
+    this.applyPath(path, op, v, events)
+  }
+
+  private admitFragment(item: any, events: StreamEvent[]) {
+    const ty = typeof item?.type === "string" ? item.type : ""
+    const frag: TrackedFragment = { type: ty, seen: 0 }
+    this.tracked.push(frag)
+    if (SEARCH_TYPES.has(ty)) {
+      events.push({ type: "search-start", queries: searchQueries(item) })
+      const builtin = searchResults(item?.results)
+      if (builtin.length) events.push({ type: "search-results", results: builtin })
+    }
+    this.reconcileContent(frag, item?.content, events)
+  }
+
+  private reconcileContent(frag: TrackedFragment, content: any, events: StreamEvent[]) {
+    const text = typeof content === "string" ? content : ""
+    if (text.length > frag.seen) {
+      const delta = text.slice(frag.seen)
+      if (frag.type === FRAG_THINK) events.push({ type: "think-delta", content: delta })
+      else if (RESPONSE_TYPES.has(frag.type)) events.push({ type: "content-delta", content: delta })
+    }
+    frag.seen = text.length
+  }
+
+  private syncFragments(items: any[], append: boolean, events: StreamEvent[]) {
+    if (append) {
+      for (const item of items) this.admitFragment(item, events)
+      return
+    }
+    const known = Math.min(items.length, this.tracked.length)
+    for (let i = 0; i < known; i++) {
+      const ty = items[i]?.type
+      if (ty) this.tracked[i].type = ty
+      this.reconcileContent(this.tracked[i], items[i]?.content, events)
+    }
+    for (let i = known; i < items.length; i++) this.admitFragment(items[i], events)
+    if (items.length < this.tracked.length) this.tracked.length = items.length
   }
 
   private applySnapshot(response: any, events: StreamEvent[]) {
     if (typeof response.status === "string") this.status = response.status
     if (typeof response.accumulated_token_usage === "number") this.tokens = response.accumulated_token_usage
-    if (Array.isArray(response.fragments)) {
-      this.fragments = []
-      this.appendFragments(response.fragments, events)
-    }
+    if (Array.isArray(response.fragments)) this.syncFragments(response.fragments, false, events)
   }
 
   private applyPath(path: string, op: string, v: any, events: StreamEvent[]) {
@@ -455,16 +519,17 @@ class PatchState {
       if (typeof v === "number") this.tokens = v
       return
     }
-    if (p === "response/fragments/-1/content") {
-      const ty = this.fragments[this.fragments.length - 1]
-      if (typeof v === "string" && ty) {
-        if (ty === FRAG_THINK) events.push({ type: "think-delta", content: v })
-        if (RESPONSE_TYPES.has(ty)) events.push({ type: "content-delta", content: v })
+    if (p === "response/fragments/-1/content" || p === "fragments/-1/content") {
+      const frag = this.tracked[this.tracked.length - 1]
+      if (typeof v === "string" && frag) {
+        frag.seen += v.length
+        if (frag.type === FRAG_THINK) events.push({ type: "think-delta", content: v })
+        else if (RESPONSE_TYPES.has(frag.type)) events.push({ type: "content-delta", content: v })
       }
       return
     }
     if (p === "response/fragments/-1/results" || p === "fragments/-1/results") {
-      if (this.fragments.length && SEARCH_TYPES.has(this.fragments[this.fragments.length - 1])) {
+      if (this.tracked.length && SEARCH_TYPES.has(this.tracked[this.tracked.length - 1].type)) {
         const results = searchResults(v)
         if (results.length) events.push({ type: "search-results", results })
       }
@@ -472,21 +537,10 @@ class PatchState {
     }
     if (p === "response/fragments" || p === "fragments") {
       const items = Array.isArray(v) ? v : [v]
-      if (op === "APPEND") {
-        this.appendFragments(items, events)
-        return
-      }
-      if (op === "SET") {
-        const known = Math.min(items.length, this.fragments.length)
-        for (let i = 0; i < known; i++) {
-          const ty = items[i]?.type
-          if (ty) this.fragments[i] = ty
-        }
-        this.appendFragments(items.slice(known), events)
-        if (items.length < this.fragments.length) this.fragments.length = items.length
-        return
-      }
+      this.syncFragments(items, op === "APPEND", events)
+      return
     }
+    if (ignoredPath(p)) return
     logUnhandled(path, op)
   }
 }

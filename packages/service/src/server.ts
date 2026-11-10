@@ -27,6 +27,7 @@ import {
   type Credentials,
   type SearchResult,
 } from "./deepseek"
+import { log } from "./log"
 
 const now = () => Date.now()
 const nextId = (prefix) => `${prefix}_${(++evtCounter).toString(36)}${now().toString(36)}`
@@ -54,7 +55,7 @@ function reloadCredentials() {
   return loadCredentials().then((next) => {
     creds = next
     hifInstance = next ? new HifCache(next) : undefined
-    console.log(`[dsterm] 模式: ${creds ? "DeepSeek Web 直连" : "echo（未配置凭证）"}`)
+    log(`[dsterm] 模式: ${creds ? "DeepSeek Web 直连" : "echo（未配置凭证）"}`)
     return next
   })
 }
@@ -73,6 +74,27 @@ function defaultAgentModel() {
     providerID: m?.providerID ?? "dsterm",
     id: m?.id ?? "default",
     variant: m?.variant ?? "search",
+  }
+}
+
+function catalogModel() {
+  return {
+    id: "default",
+    modelID: "default",
+    providerID: "dsterm",
+    type: "chat",
+    family: "deepseek",
+    name: "DeepSeek Flash",
+    compatibility: { reasoningField: "reasoning_content", streamUsage: true },
+    package: "@dsterm/service",
+    settings: {},
+    capabilities: { tools: false, input: ["text"], output: ["text"], temperature: true },
+    variants: [{ id: "default" }, { id: "search" }],
+    time: { released: 0 },
+    cost: [],
+    status: "active",
+    enabled: true,
+    limit: { context: 128000, output: 8192 },
   }
 }
 
@@ -212,8 +234,8 @@ function transientEvent(type, data) {
 }
 
 function normalizeModel(model) {
-  if (!model) return { providerID: "dsterm", id: "default" }
-  return { providerID: model.providerID, id: model.modelID ?? model.id, variant: model.variant }
+  if (!model) return { providerID: "dsterm", id: "default", variant: "search" }
+  return { providerID: model.providerID, id: model.modelID ?? model.id, variant: model.variant ?? "search" }
 }
 
 function createSession(title?, preferredId?, model?, agent?) {
@@ -402,7 +424,7 @@ async function runDeepseek(sessionID: string, text: string, controller: AbortCon
         refFileIds.push(uploaded.id)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        console.log(`[dsterm] 附件上传失败 ${uri}: ${message}`)
+        log(`[dsterm] 附件上传失败 ${uri}: ${message}`)
       }
     }
     const model = { providerID: "dsterm", id: "default" }
@@ -641,29 +663,12 @@ const routes = {
   "GET /api/model": () =>
     json({
       location: locationRef(),
-      data: [{
-        id: "default",
-        modelID: "default",
-        providerID: "dsterm",
-        type: "chat",
-        family: "deepseek",
-        name: "DeepSeek Flash",
-        compatibility: { reasoningField: "reasoning_content", streamUsage: true },
-        package: "@dsterm/service",
-        settings: {},
-        capabilities: { tools: false, input: ["text"], output: ["text"], temperature: true },
-        variants: [{ id: "default" }, { id: "search" }],
-        time: { released: 0 },
-        cost: [],
-        status: "active",
-        enabled: true,
-        limit: { context: 128000, output: 8192 },
-      }],
+      data: [catalogModel()],
     }),
   "GET /api/model/default": () =>
     json({
       location: locationRef(),
-      data: { providerID: "dsterm", modelID: "default" },
+      data: catalogModel(),
     }),
   "GET /api/provider": () =>
     json({
@@ -681,6 +686,23 @@ const routes = {
   "GET /api/experimental/usage/limits": () => json({ location: locationRef(), data: null }),
   "GET /api/experimental/migration/v1": () => json({ location: locationRef(), data: null }),
   "GET /api/experimental/session/:id/terminal": () => json({ location: locationRef(), data: null }),
+  "POST /api/experimental/session/:id/wait": async (req, p) => {
+    while (streamControllers.has(p.id)) {
+      if (req.signal.aborted) break
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 200)
+        req.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer)
+            resolve(undefined)
+          },
+          { once: true },
+        )
+      })
+    }
+    return voidResponse()
+  },
   "GET /api/experimental/fs/list": () => json({ location: locationRef(), data: [] }),
   "GET /api/fs/find": async (req) => {
     const url = new URL(req.url)
@@ -726,6 +748,7 @@ const routes = {
   "GET /api/plugin": () => json({ location: locationRef(), data: [] }),
   "GET /api/session/:id/permission": () => json({ location: locationRef(), data: [] }),
   "GET /api/session/:id/inbox": (_req, p) => json({ location: locationRef(), data: [] }),
+  "GET /api/session/:id/form": () => json({ location: locationRef(), data: [] }),
   "GET /api/session/:id/message/:messageID": (_req, p) => {
     const list = messages.get(p.id) ?? []
     const found = list.find((m) => m.id === p.messageID)
@@ -799,7 +822,10 @@ const routes = {
     }
     return json({ data: slice, cursor })
   },
-  "GET /api/session/active": () => json(null),
+  "GET /api/session/active": () =>
+    json({
+      data: Object.fromEntries([...streamControllers.keys()].map((id) => [id, { type: "running" }])),
+    }),
   "GET /api/session/:id": async (_req, p) => {
     const local = sessions.get(p.id)
     if (local) return json({ data: local })
@@ -881,7 +907,7 @@ const routes = {
     const order = new URL(req.url).searchParams.get("order") ?? "desc"
     const tail = p.id.startsWith("ses_") ? p.id.slice(4) : ""
     const upstreamId = upstream.get(p.id)?.upstreamId ?? (UUID_RE.test(tail) ? tail : undefined)
-    if (creds && upstreamId && !streamControllers.has(p.id)) {
+    if (creds && upstreamId && !streamControllers.has(p.id) && !messages.get(p.id)?.length) {
       try {
         const hist = await fetchHistory(creds, upstreamId)
         const items = hist.chat_messages ?? []
@@ -906,7 +932,7 @@ const routes = {
     const { chmod } = await import("node:fs/promises")
     await chmod(path, 0o600)
     await reloadCredentials()
-    console.log(`[dsterm] 凭据已更新（${deviceId ? "含 deviceId" : "缺少 deviceId，可能触发设备风控"}）`)
+    log(`[dsterm] 凭据已更新（${deviceId ? "含 deviceId" : "缺少 deviceId，可能触发设备风控"}）`)
     return json({ ok: true, warning: deviceId ? undefined : "deviceId 为空，可能触发设备风控" })
   },
   "PATCH /api/session/:id": async (req, p) => {
@@ -931,7 +957,7 @@ const routes = {
           await renameChatSession(creds, uuid, title)
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
-          console.log(`[dsterm] 云端重命名失败 ${p.id}: ${message}`)
+          log(`[dsterm] 云端重命名失败 ${p.id}: ${message}`)
           return json({ _tag: "ServiceError", message: `云端重命名失败: ${message}` }, 500)
         }
       }
@@ -951,7 +977,7 @@ const routes = {
         await deleteChatSession(creds, uuid)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        console.log(`[dsterm] 云端删除失败 ${p.id}: ${message}`)
+        log(`[dsterm] 云端删除失败 ${p.id}: ${message}`)
         return json({ _tag: "ServiceError", message: `云端删除失败: ${message}` }, 500)
       }
     }
@@ -1012,7 +1038,7 @@ export function startService(port: number = Number(process.env.DSTERM_PORT) || 4
     const url = new URL(req.url)
     const { pathname } = url
     if (pathname === "/api/event") return sseResponse()
-    if (req.method === "POST") console.log(`[req] ${req.method} ${pathname}`)
+    if (req.method === "POST") log(`[req] ${req.method} ${pathname}`)
     const matched = matchRoute(req.method, pathname)
     if (matched) {
       try {
@@ -1059,12 +1085,12 @@ export async function ensureService(): Promise<{ url: string; port: number }> {
     const probe = await probeService(url)
     if (probe.ok) {
       if (probe.version !== undefined && probe.version !== serviceVersion)
-        console.warn(`[dsterm] 复用端口 ${port} 上的服务实例 ${probe.version}（当前客户端 ${serviceVersion}）`)
+        log(`[dsterm] 复用端口 ${port} 上的服务实例 ${probe.version}（当前客户端 ${serviceVersion}）`)
       return { url, port }
     }
     if (!isPortInUse(err)) throw err
     const fallback = startService(0)
-    console.warn(`[dsterm] 端口 ${port} 被非 dsterm 进程占用，已改用临时端口 ${fallback.port}`)
+    log(`[dsterm] 端口 ${port} 被非 dsterm 进程占用，已改用临时端口 ${fallback.port}`)
     ownedServer = fallback
     ownedEndpoint = { url: `http://127.0.0.1:${fallback.port!}`, port: fallback.port! }
     return ownedEndpoint
@@ -1087,16 +1113,16 @@ function isPortInUse(err: unknown) {
 }
 
 if (import.meta.main) {
-  console.log(`[dsterm] 模式: ${creds ? "DeepSeek Web 直连" : "echo（未配置凭证，写入 ~/.config/dsterm/credentials.json 启用）"}`)
+  log(`[dsterm] 模式: ${creds ? "DeepSeek Web 直连" : "echo（未配置凭证，写入 ~/.config/dsterm/credentials.json 启用）"}`)
   const port = Number(process.env.DSTERM_PORT) || 4598
   try {
     const server = startService()
-    console.log(`[dsterm] service listening on http://127.0.0.1:${server.port}`)
+    log(`[dsterm] service listening on http://127.0.0.1:${server.port}`)
   } catch (err) {
     const probe = await probeService(`http://127.0.0.1:${port}`)
     if (probe.ok) {
-      console.log(`[dsterm] 端口 ${port} 已有服务实例在运行，已复用`)
-      console.log(`[dsterm] 若行为异常（旧代码残留），请先执行: lsof -ti :${port} | xargs kill -9`)
+      log(`[dsterm] 端口 ${port} 已有服务实例在运行，已复用`)
+      log(`[dsterm] 若行为异常（旧代码残留），请先执行: lsof -ti :${port} | xargs kill -9`)
       process.exit(0)
     }
     throw err
