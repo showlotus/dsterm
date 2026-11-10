@@ -20,7 +20,7 @@ if (existsSync(readme)) {
   const source = await Bun.file(readme).text()
   const npmReadme = source.replace(
     /<picture>[\s\S]*?<\/picture>/,
-    '<img src="https://raw.githubusercontent.com/showlotus/dsterm/main/logo-light.png" alt="dsterm logo">',
+    '<img src="https://raw.githubusercontent.com/showlotus/dsterm/main/logo-mid.png" alt="dsterm logo">',
   )
   if (npmReadme === source) throw new Error(`README logo block is missing: ${readme}`)
   await Bun.write(path.join(root, "@showlotus/dsterm", "README.md"), npmReadme)
