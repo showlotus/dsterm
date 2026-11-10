@@ -1,0 +1,43 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::tag v$TAG does not match package.json version $VERSION"
+            exit 1
+          fi
+          echo "publishing $VERSION"
+      - name: Run service tests
+        working-directory: packages/service
+        run: bun test
+      - name: Derive npm dist-tag
+        run: echo "DIST_TAG=$(node -p "require('./package.json').version.match(/-([^.]+)/)?.[1] ?? 'latest'")" >> "$GITHUB_ENV"
+      - name: Build and publish
+        working-directory: packages/cli
+        run: bun run script/publish.ts --tag="$DIST_TAG" --target=all
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
