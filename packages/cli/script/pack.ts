@@ -16,7 +16,15 @@ await mkdir(npmDir, { recursive: true })
 await mkdir(archiveDir, { recursive: true })
 
 const readme = path.resolve(dir, "../../README.md")
-if (existsSync(readme)) await Bun.write(path.join(root, "@showlotus/dsterm", "README.md"), Bun.file(readme))
+if (existsSync(readme)) {
+  const source = await Bun.file(readme).text()
+  const npmReadme = source.replace(
+    /<picture>[\s\S]*?<\/picture>/,
+    '<img src="https://raw.githubusercontent.com/showlotus/dsterm/main/logo-light.png" alt="dsterm logo">',
+  )
+  if (npmReadme === source) throw new Error(`README logo block is missing: ${readme}`)
+  await Bun.write(path.join(root, "@showlotus/dsterm", "README.md"), npmReadme)
+}
 await packDistribution({
   root,
   name: "@showlotus/dsterm",
