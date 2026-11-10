@@ -88,4 +88,4 @@ bun run publish:alpha
 
 ## License
 
-[MIT](packages/cli/package.json)
+[MIT](LICENSE)
