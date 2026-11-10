@@ -2,7 +2,7 @@
   <picture>
     <source srcset="./logo-dark.png" media="(prefers-color-scheme: dark)">
     <source srcset="./logo-light.png" media="(prefers-color-scheme: light)">
-    <img src="./logo-light.png" alt="dsterm logo">
+    <img src="./logo-mid.png" alt="dsterm logo">
   </picture>
 </p>
 
