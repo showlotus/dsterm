@@ -1,4 +1,4 @@
-# dsterm
+<h1><p align="center">DST</p></h1>
 
 <p align="center">
   <picture>
