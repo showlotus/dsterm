@@ -15,12 +15,15 @@ import {
 } from "@opentui/core"
 import { Locale } from "../util/locale"
 import { stringWidth } from "../util/string-width"
-import { go } from "../logo"
+import { logo } from "../logo"
 import { monoTruncate } from "./mono"
 import type { RunSplashTheme } from "./theme"
 
 const SPLASH_TITLE_LIMIT = 50
 const SPLASH_TITLE_FALLBACK = "Untitled session"
+const LOGO_D = logo.left.map((row) => row.slice(0, 4))
+const LOGO_S = logo.right.map((row) => row.slice(0, 4))
+const EXIT_MARK_DS = LOGO_D.map((row, index) => `${row} ${LOGO_S[index]}`)
 
 type SplashInput = {
   title: string | undefined
@@ -176,8 +179,9 @@ function buildExit(input: SplashWriterInput, ctx: ScrollbackRenderContext): Scro
   const left = input.theme.left
   const right = input.theme.right
   const leftShadow = input.theme.leftShadow
-  const mark = input.mono ? ["[O]"] : go.right.slice(1)
+  const mark = input.mono ? ["[ds]"] : EXIT_MARK_DS
   const top = 1
+  const textTop = top + Math.max(0, mark.length - 3)
   const body_left = (mark[0]?.length ?? 0) + 2
   const session = "Session  "
   const label = "Continue "
@@ -196,10 +200,10 @@ function buildExit(input: SplashWriterInput, ctx: ScrollbackRenderContext): Scro
     }
 
     if (input.showSession !== false) {
-      push(lines, body_left, top, session, left)
-      push(lines, body_left + session.length, top, meta.title, right, undefined, TextAttributes.BOLD)
+      push(lines, body_left, textTop, session, left)
+      push(lines, body_left + session.length, textTop, meta.title, right, undefined, TextAttributes.BOLD)
     }
-    push(lines, body_left, top + 1, label, left)
+    push(lines, body_left, textTop + 1, label, left)
   }
 
   const height = top + (wide ? Math.max(mark.length, 2) : commandHeight)
@@ -218,7 +222,7 @@ function buildExit(input: SplashWriterInput, ctx: ScrollbackRenderContext): Scro
     new TextRenderable(ctx.renderContext, {
       position: "absolute",
       left: wide ? body_left + label.length : 0,
-      top: wide ? top + 1 : top,
+      top: wide ? textTop + 1 : top,
       width: wide ? width - body_left - label.length : width,
       height: commandHeight,
       wrapMode: "char",
@@ -285,9 +289,9 @@ export function entrySplashLayout(input: { width: number; version: string; detai
     .map((_, index) => ellipsis + slash + segments.slice(index + 1).join(slash))
     .reverse()
     .filter((path) => stringWidth(path) < stringWidth(detail))
-  let layout = { label: Locale.takeWidth("oc mini", input.width), version: "", path: "", metadata: "" }
+  let layout = { label: Locale.takeWidth("dst mini", input.width), version: "", path: "", metadata: "" }
   const stages = [
-    { label: `${input.mono ? "[O]" : "▪"} oc mini` },
+    { label: `${input.mono ? "[ds]" : "▪"} dst mini` },
     ...(leaf ? [{ path: leaf }] : []),
     ...(input.version ? [{ version: input.version }] : []),
     ...paths.concat(detail ? [detail] : []).map((path) => ({ path })),

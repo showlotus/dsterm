@@ -136,6 +136,7 @@ type State = {
   globalForms: MiniFormRequest[]
   view: FooterView
   messageIDs: Set<string>
+  websearchMessages: Set<string>
   // Delivery can arrive before the admission response supplies the user content.
   promotedMessages: Set<string>
   imageIDs: Set<string>
@@ -490,6 +491,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     globalForms: [],
     view: { type: "prompt" },
     messageIDs: new Set(),
+    websearchMessages: new Set(),
     promotedMessages: new Set(),
     imageIDs: new Set(),
     fragments: createFragmentReconciler(),
@@ -571,7 +573,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
         const text = state.fragments.value({ messageID: commit.messageID, partID: commit.partID })
         input.onCommit?.({
           ...commit,
-          text: commit.kind === "reasoning" && text ? `Thinking: ${text}` : (text ?? commit.text),
+          text: text ?? commit.text,
         })
       })
     writeSessionOutput(
@@ -718,8 +720,9 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
   }
 
   const renderTool = (messageID: string, item: SessionMessageAssistantTool, render = true) => {
+    if (item.name === "websearch") state.websearchMessages.add(messageID)
     if (!showTools()) {
-      rememberToolMessage(messageID)
+      if (item.name !== "websearch") rememberToolMessage(messageID)
       render = false
     }
     const part = normalizeTool(item)
@@ -843,7 +846,9 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     }
     if (message.type !== "assistant") return
     state.messageIDs.add(message.id)
-    const hasTools = message.content.some((item) => item.type === "tool")
+    if (message.content.some((item) => item.type === "tool" && item.name === "websearch"))
+      state.websearchMessages.add(message.id)
+    const hasTools = message.content.some((item) => item.type === "tool" && item.name !== "websearch")
     if (hasTools) rememberToolMessage(message.id)
     let textOrdinal = 0
     let reasoningOrdinal = 0
@@ -873,7 +878,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
             {
               kind: "reasoning",
               source: "reasoning",
-              text: update.previous.length === 0 ? `Thinking: ${item.text}` : item.text.slice(update.previous.length),
+              text: item.text.slice(update.previous.length),
               phase: "progress",
               messageID: message.id,
               partID: fragment.partID,
@@ -1188,7 +1193,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     if (event.type === "session.text.delta") {
       const fragment = fragmentRef(event.data.assistantMessageID, "text", event.data.ordinal)
       if (!state.fragments.delta(fragment, event.data.delta)) return
-      if (!showTools()) {
+      if (!showTools() && !state.websearchMessages.has(event.data.assistantMessageID)) {
         bufferQuietText(event.data.assistantMessageID, fragment.partID, event.data.delta, false)
         return
       }
@@ -1209,7 +1214,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
         fragmentRef(event.data.assistantMessageID, "text", event.data.ordinal),
         event.data.text,
       )
-      if (!showTools()) {
+      if (!showTools() && !state.websearchMessages.has(event.data.assistantMessageID)) {
         bufferQuietText(event.data.assistantMessageID, update.partID, event.data.text, true)
         return
       }
@@ -1227,6 +1232,17 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
       return
     }
     if (event.type === "session.reasoning.started") {
+      if (input.thinking)
+        write([
+          {
+            kind: "reasoning",
+            source: "reasoning",
+            text: "Thinking",
+            phase: "start",
+            messageID: event.data.assistantMessageID,
+            partID: fragmentRef(event.data.assistantMessageID, "reasoning", event.data.ordinal).partID,
+          },
+        ])
       return
     }
     if (event.type === "session.reasoning.delta") {
@@ -1240,7 +1256,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
           {
             kind: "reasoning",
             source: "reasoning",
-            text: update.previous ? event.data.delta : `Thinking: ${event.data.delta}`,
+            text: event.data.delta,
             phase: "progress",
             messageID: event.data.assistantMessageID,
             partID: update.partID,
@@ -1258,7 +1274,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
           {
             kind: "reasoning",
             source: "reasoning",
-            text: update.previous ? event.data.text.slice(update.previous.length) : `Thinking: ${event.data.text}`,
+            text: update.previous ? event.data.text.slice(update.previous.length) : event.data.text,
             phase: "progress",
             messageID: event.data.assistantMessageID,
             partID: update.partID,

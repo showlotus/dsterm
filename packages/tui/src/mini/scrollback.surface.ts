@@ -4,6 +4,7 @@
 // surfaces keep streaming markdown/code layout stable and wait for image loads
 // before their snapshots enter scrollback.
 import {
+  BoxRenderable,
   CodeRenderable,
   ImageRenderable,
   MarkdownRenderable,
@@ -11,12 +12,14 @@ import {
   getTreeSitterClient,
   type TreeSitterClient,
   type CliRenderer,
+  type NativeResourceOwner,
   type ScrollbackSurface,
   type SyntaxStyle,
 } from "@opentui/core"
 import { entryBody, entryCanStream, entryDone, entryFlags } from "./entry.body"
 import { monoMarkdownRenderable, monoMarkdownTableOptions } from "./mono"
-import { entryColor, entryLook, entrySyntax } from "./scrollback.shared"
+import { entryColor, entryLook, entrySyntax, thinkingSyntax } from "./scrollback.shared"
+import { SplitBorder } from "../ui/border"
 import { turnSummaryCommit } from "./turn-summary"
 import { entryWriter, sameEntryGroup, separatorRows, spacerWriter, turnSummaryWriter } from "./scrollback.writer"
 import { type RunTheme } from "./theme"
@@ -169,10 +172,16 @@ export class RunScrollbackStream {
     }
 
     active.renderable.fg = entryColor(active.commit, theme)
-    const syntax = entrySyntax(theme, active.surface.renderContext.nativeScene)
+    const syntax = this.entrySyntaxFor(theme, active.commit, active.body, active.surface.renderContext.nativeScene)
     if (active.syntax) this.pendingStyles.push(active.syntax)
     active.syntax = syntax
     active.renderable.syntaxStyle = syntax
+  }
+
+  private entrySyntaxFor(theme: RunTheme, commit: StreamCommit, body: ActiveBody, owner: NativeResourceOwner) {
+    return commit.kind === "reasoning" && body.type === "code" && !this.mono
+      ? thinkingSyntax(theme, owner)
+      : entrySyntax(theme, owner)
   }
 
   private createEntry(commit: StreamCommit, body: ActiveBody): ActiveEntry {
@@ -180,7 +189,11 @@ export class RunScrollbackStream {
       startOnNewLine: entryFlags(commit).startOnNewLine,
     })
     const style = entryLook(commit, this.theme.entry)
-    const syntax = body.type === "text" ? undefined : entrySyntax(this.theme, surface.renderContext.nativeScene)
+    const quote = commit.kind === "reasoning" && body.type === "code" && !this.mono
+    const syntax =
+      body.type === "text"
+        ? undefined
+        : this.entrySyntaxFor(this.theme, commit, body, surface.renderContext.nativeScene)
     const treeSitterClient = body.type === "text" ? undefined : (this.treeSitterClient ??= getTreeSitterClient())
     const renderable =
       body.type === "text"
@@ -200,6 +213,7 @@ export class RunScrollbackStream {
               wrapMode: "word",
               drawUnstyledText: false,
               streaming: true,
+              conceal: commit.kind === "reasoning" && !this.mono ? true : undefined,
               fg: entryColor(commit, this.theme),
               treeSitterClient,
             })
@@ -209,13 +223,27 @@ export class RunScrollbackStream {
               width: "100%",
               streaming: true,
               internalBlockMode: "top-level",
-              tableOptions: this.mono ? monoMarkdownTableOptions : { widthMode: "content" },
+              conceal: !this.mono,
+              tableOptions: this.mono ? monoMarkdownTableOptions : { style: "grid", cellPaddingX: 1 },
               fg: entryColor(commit, this.theme),
               treeSitterClient,
             })
 
     if (this.mono && renderable instanceof MarkdownRenderable) monoMarkdownRenderable(renderable)
-    surface.root.add(renderable)
+    if (quote) {
+      const box = new BoxRenderable(surface.renderContext, {
+        width: "100%",
+        border: ["left"],
+        customBorderChars: SplitBorder.customBorderChars,
+        borderColor: this.theme.block.faint,
+      })
+      box.add(renderable)
+      renderable.left = 1
+      renderable.top = 0
+      surface.root.add(box)
+    } else {
+      surface.root.add(renderable)
+    }
 
     const rows = separatorRows(this.rendered, commit, body)
 

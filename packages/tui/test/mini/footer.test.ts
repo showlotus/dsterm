@@ -142,7 +142,7 @@ async function setup(
     theme: mono ? RUN_THEME_MONO : RUN_THEME_FALLBACK,
     tuiConfig: createTuiResolvedConfig({ theme: input.theme }),
     miniSettings: {
-      current: { ...resolveMiniSettings(), mono, ...(input.tools ? { tools: input.tools } : {}) },
+      current: { ...resolveMiniSettings(), status_agent: "show" as const, mono, ...(input.tools ? { tools: input.tools } : {}) },
       update: input.update,
     },
     onPermissionReply: () => {},
@@ -191,10 +191,10 @@ test.each(["timer", "output", "close", "panel"] as const)(
       await app.renderOnce()
       expect(app.renderer.root.findDescendantById("mini-startup")).toBeUndefined()
       const rows = app.externalOutput.take().flatMap((event) => event.rows)
-      expect(rows.filter((row) => row.includes("oc mini"))).toEqual(["\u25aa oc mini vtest \u00b7 /project"])
+      expect(rows.filter((row) => row.includes("dst mini"))).toEqual(["\u25aa dst mini vtest \u00b7 /project"])
       if (finish === "output")
         expect(rows.findIndex((row) => row.includes("first output"))).toBeGreaterThan(
-          rows.findIndex((row) => row.includes("oc mini")),
+          rows.findIndex((row) => row.includes("dst mini")),
         )
       if (finish !== "panel") expect(app.renderer.currentFocusedEditor).toBe(editor)
       app.footer.finishStartup()
@@ -274,7 +274,7 @@ test.each([false, true])("monochrome toggles live without replacing the footer (
     theme: { name: "system" },
     update: async (change) => {
       changes.push(change)
-      return { ...resolveMiniSettings(), [change.key]: change.value }
+      return { ...resolveMiniSettings(), status_agent: "show" as const, [change.key]: change.value }
     },
   })
   app.renderer.getPalette = async () => {

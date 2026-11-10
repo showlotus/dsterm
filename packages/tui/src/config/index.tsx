@@ -41,6 +41,7 @@ export const MiniWorkSpinner = Schema.Literals([
   "crosshatch",
   "density-wave",
   "seed",
+  "braille-dots",
 ])
 export type MiniWorkSpinner = Schema.Schema.Type<typeof MiniWorkSpinner>
 
@@ -221,11 +222,14 @@ export const Info = Schema.Struct({
       footer: Schema.optional(Schema.Literals(["show", "hide"])).annotate({
         description: "Show or hide persistent activity, model, usage, and context details in the footer",
       }),
+      status_agent: Schema.optional(Schema.Literals(["show", "hide"])).annotate({
+        description: "Show or hide the agent name in the mini footer status line",
+      }),
       splash: Schema.optional(Schema.Literals(["show", "hide"])).annotate({
         description: "Show or hide the entry and exit splash banners",
       }),
       work_spinner: Schema.optional(MiniWorkSpinner).annotate({
-        description: "Work spinner animation in the Mini footer (default: block-soft-slide)",
+        description: "Work spinner animation in the Mini footer (default: braille-dots)",
       }),
       mono: Schema.optional(Schema.Boolean).annotate({
         description: "Use monochrome ASCII output",

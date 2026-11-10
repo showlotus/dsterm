@@ -46,7 +46,7 @@ test.each([
   { width: 20, mono: false, detail: "/home/研究/長いディレクトリ/画面/設定/界e\u0301🙂", metadata: " · 界e\u0301🙂" },
 ])("entry renders metadata with distinct foreground roles (%o)", async (input) => {
   const result = await renderSplash(entrySplash({ ...input, version: "local", theme }), input.width)
-  const label = `${input.mono ? "[O]" : marker} oc mini`
+  const label = `${input.mono ? "[ds]" : marker} dst mini`
   expect(result.rows).toEqual(["", label + input.metadata])
   const labelStyle = result.spans.find((span) => span.text === label)
   expect(labelStyle?.width).toBe(stringWidth(label))
@@ -59,14 +59,14 @@ test.each([
 })
 
 test.each([
-  { width: 20, mono: false, version: "local", expected: `${marker} oc mini` },
-  { width: 22, mono: false, version: "local", expected: `${marker} oc mini · oc-mini-v2` },
-  { width: 29, mono: false, version: "local", expected: `${marker} oc mini vlocal · oc-mini-v2` },
-  { width: 31, mono: false, version: "local", expected: `${marker} oc mini vlocal · …/oc-mini-v2` },
-  { width: 20, mono: false, version: preview, expected: `${marker} oc mini` },
-  { width: 24, mono: false, version: preview, expected: `${marker} oc mini · oc-mini-v2` },
-  { width: 24, mono: true, version: preview, expected: "[O] oc mini - oc-mini-v2" },
-  { width: 32, mono: false, version: preview, expected: `${marker} oc mini · oc-mini-v2` },
+  { width: 20, mono: false, version: "local", expected: `${marker} dst mini` },
+  { width: 22, mono: false, version: "local", expected: `${marker} dst mini` },
+  { width: 29, mono: false, version: "local", expected: `${marker} dst mini · oc-mini-v2` },
+  { width: 31, mono: false, version: "local", expected: `${marker} dst mini vlocal · oc-mini-v2` },
+  { width: 20, mono: false, version: preview, expected: `${marker} dst mini` },
+  { width: 24, mono: false, version: preview, expected: `${marker} dst mini · oc-mini-v2` },
+  { width: 24, mono: true, version: preview, expected: "[ds] dst mini" },
+  { width: 32, mono: false, version: preview, expected: `${marker} dst mini · oc-mini-v2` },
 ])("entry progressively admits the basename, whole version, and parent directories (%o)", (input) => {
   const layout = entrySplashLayout({ ...input, detail: "~/src/wt/oc-mini-v2" })
   expect(layout.label + layout.metadata).toBe(input.expected)
@@ -111,8 +111,8 @@ test.each([false, true])("entry layout preserves admitted information at every w
         }
         if (layout.version && detail) expect(layout.path).not.toBe("")
         if (layout.path) expect(suffix(detail!)).toEndWith(suffix(layout.path))
-        const marked = `${mono ? "[O]" : marker} oc mini`
-        expect(layout.label).toBe(stringWidth(marked) <= width ? marked : "oc mini".slice(0, width))
+        const marked = `${mono ? "[ds]" : marker} dst mini`
+        expect(layout.label).toBe(stringWidth(marked) <= width ? marked : "dst mini".slice(0, width))
         previous = layout
       }
       expect(previous.path).toBe(detail ?? "")
@@ -122,7 +122,7 @@ test.each([false, true])("entry layout preserves admitted information at every w
 })
 
 test.each([false, true])("entry skips abbreviated paths that are longer than the full path (mono=%s)", (mono) => {
-  const label = `${mono ? "[O]" : marker} oc mini`
+  const label = `${mono ? "[ds]" : marker} dst mini`
   const metadata = mono ? " vlocal - a/b/c" : " vlocal · a/b/c"
   expect(
     entrySplashLayout({ width: stringWidth(label + metadata), version: "local", detail: "a/b/c", mono }),
@@ -175,22 +175,26 @@ test.each(
     exitSplash({ ...input, title: "Review mini layout", session_id: sessionID, theme }),
     input.width,
   )
-  const command = `opencode mini -s ${sessionID}`
+  const command = `dsterm mini -s ${sessionID}`
+  const bodyTop = input.mono ? 1 : 2
   const commandRows =
-    input.width >= 80 ? [result.rows[2].slice(result.rows[2].indexOf("opencode"))] : result.rows.slice(1)
+    input.width >= 80
+      ? [result.rows[bodyTop + 1].slice(result.rows[bodyTop + 1].indexOf("dsterm"))]
+      : result.rows.slice(1)
   const reconstructed = commandRows
     .map((row, index) => (index < commandRows.length - 1 ? row.padEnd(input.width) : row))
     .join("")
   expect(reconstructed).toBe(command)
   if (input.width >= 80) {
-    expect(result.rows[1].startsWith(input.mono ? "[O]" : "█▀▀█")).toBe(true)
-    expect(result.rows[1].includes("Session  Review mini layout")).toBe(input.showSession)
-    expect(result.rows[2]).toContain("Continue " + command)
+    expect(result.rows[1].startsWith(input.mono ? "[ds]" : "   ▄")).toBe(true)
+    expect(result.rows[1].includes("Session  Review mini layout")).toBe(input.mono ? input.showSession : false)
+    expect(result.rows[bodyTop].includes("Session  Review mini layout")).toBe(input.showSession)
+    expect(result.rows[bodyTop + 1]).toContain("Continue " + command)
   } else {
-    expect(result.rows.join("\n")).not.toMatch(/Session|Continue|Review mini layout|█|\[O\]/)
+    expect(result.rows.join("\n")).not.toMatch(/Session|Continue|Review mini layout|█|\[ds\]/)
     expect(result.rows).toHaveLength(1 + Math.ceil(command.length / input.width))
   }
   if (input.mono) expect(result.rows.join("")).not.toMatch(/[^\x20-\x7e]/)
-  expect(result.spans.find((span) => span.text.includes("opencode"))?.fg.intent).toBe("default")
-  expect(result.spans.find((span) => span.text.includes("opencode"))?.fg.toInts()).toEqual(theme.right.toInts())
+  expect(result.spans.find((span) => span.text.includes("dsterm"))?.fg.intent).toBe("default")
+  expect(result.spans.find((span) => span.text.includes("dsterm"))?.fg.toInts()).toEqual(theme.right.toInts())
 })

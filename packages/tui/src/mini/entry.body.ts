@@ -65,14 +65,6 @@ function reasoningBody(raw: string, mono: boolean): RunEntryBody {
     return RUN_ENTRY_NONE
   }
 
-  const lead = clean.match(/^\n+/)?.[0] ?? ""
-  const body = lead ? clean.slice(lead.length) : clean
-  const mark = "Thinking:"
-  if (body.startsWith(mark)) {
-    if (mono) return textBody(`${lead}${mark} ${body.slice(mark.length).trimStart()}`)
-    return codeBody(`${lead}_Thinking:_ ${body.slice(mark.length).trimStart()}`, "markdown")
-  }
-
   return mono ? textBody(clean) : codeBody(clean, "markdown")
 }
 
@@ -226,7 +218,7 @@ export function entryBody(commit: StreamCommit, options?: ScrollbackOptions): Ru
 
   if (commit.kind === "reasoning") {
     if (commit.phase === "start") {
-      return RUN_ENTRY_NONE
+      return textBody(raw)
     }
 
     if (commit.phase === "final") {

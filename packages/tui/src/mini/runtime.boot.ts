@@ -91,8 +91,9 @@ export function resolveMiniSettings(config?: { mini?: Partial<MiniSettings> }): 
     shell_output: config?.mini?.shell_output ?? "hide",
     turn_summary: config?.mini?.turn_summary ?? "show",
     footer: config?.mini?.footer ?? "show",
+    status_agent: config?.mini?.status_agent ?? "hide",
     splash: config?.mini?.splash ?? "show",
-    work_spinner: config?.mini?.work_spinner ?? "block-soft-slide",
+    work_spinner: config?.mini?.work_spinner ?? "braille-dots",
     mono: config?.mini?.mono ?? false,
   }
 }

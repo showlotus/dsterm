@@ -422,6 +422,7 @@ export function RunFooterView(props: RunFooterViewProps) {
   })
   const agentStatus = createMemo(() => {
     if (!footerDetails() || !prompt() || shell()) return undefined
+    if (props.miniSettings().status_agent === "hide") return undefined
     return props.currentAgent()
   })
   const modelStatus = createMemo(() => {

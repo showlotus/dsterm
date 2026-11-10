@@ -37,7 +37,7 @@ async function setup(mono = false) {
     theme,
     tuiConfig: createTuiResolvedConfig(),
     miniSettings: {
-      current: { ...resolveMiniSettings(), mono },
+      current: { ...resolveMiniSettings(), status_agent: "show" as const, mono },
     },
     onPermissionReply: () => {},
     onFormReply: () => {},

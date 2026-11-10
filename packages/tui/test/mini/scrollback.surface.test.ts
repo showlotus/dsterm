@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "bun:test"
 import type { SessionMessageAssistantTool } from "@opencode/client/promise"
 import {
+  BoxRenderable,
   CliRenderEvents,
+  CodeRenderable,
   MarkdownRenderable,
   ResourceContext,
   RGBA,
@@ -162,6 +164,7 @@ test("theme swaps restyle active reasoning without resetting the stream", async 
     ...RUN_THEME_FALLBACK,
     block: {
       ...RUN_THEME_FALLBACK.block,
+      muted: RGBA.fromHex("#111111"),
       syntax: previousSyntax,
     },
   }
@@ -169,6 +172,7 @@ test("theme swaps restyle active reasoning without resetting the stream", async 
     ...RUN_THEME_FALLBACK,
     block: {
       ...RUN_THEME_FALLBACK.block,
+      muted: RGBA.fromHex("#222222"),
       syntax: nextSyntax,
     },
   }
@@ -178,13 +182,13 @@ test("theme swaps restyle active reasoning without resetting the stream", async 
     await out.scrollback.append(reasoning("before"))
     const previousBound = activeSyntax(out.scrollback)!
     expect(previousBound).not.toBe(previousSyntax)
-    expect(previousBound.getAllStyles()).toEqual(previousSyntax.getAllStyles())
+    expect(previousBound.getStyle("default")?.fg?.toInts()).toEqual(RGBA.fromHex("#111111").toInts())
 
     out.scrollback.setTheme(next)
     const nextBound = activeSyntax(out.scrollback)!
     expect(nextBound).not.toBe(nextSyntax)
-    expect(nextBound.getAllStyles()).toEqual(nextSyntax.getAllStyles())
-    expect(previousBound.getAllStyles()).toEqual(previousSyntax.getAllStyles())
+    expect(nextBound.getStyle("default")?.fg?.toInts()).toEqual(RGBA.fromHex("#222222").toInts())
+    expect(previousBound.getStyle("default")?.fg?.toInts()).toEqual(RGBA.fromHex("#111111").toInts())
     expect(released).toEqual([])
 
     await out.scrollback.append(reasoning("after"))
@@ -208,6 +212,62 @@ function activeSyntax(scrollback: RunScrollbackStream) {
   const entry = Reflect.get(scrollback, "active") as { renderable?: { syntaxStyle?: SyntaxStyle } } | undefined
   return entry?.renderable?.syntaxStyle
 }
+
+test("reasoning renders as a left-bordered quote block", async () => {
+  const out = await setup()
+  try {
+    await out.scrollback.append(reasoning("first thought", "progress"))
+    await out.scrollback.complete()
+    const commits = claim(out.renderer)
+    try {
+      expect(renderRows(commits[0]!).filter((row) => row.trim())).toEqual(["┃ first thought"])
+    } finally {
+      destroy(commits)
+    }
+  } finally {
+    out.scrollback.destroy()
+  }
+})
+
+test("mono reasoning keeps plain text without the quote border", async () => {
+  const out = await setup({ mono: true })
+  try {
+    await out.scrollback.append(reasoning("first thought", "progress"))
+    await out.scrollback.complete()
+    const commits = claim(out.renderer)
+    try {
+      expect(renderRows(commits[0]!).filter((row) => row.trim())).toEqual(["first thought"])
+    } finally {
+      destroy(commits)
+    }
+  } finally {
+    out.scrollback.destroy()
+  }
+})
+
+test("static reasoning writer wraps the code block in a quote border", async () => {
+  const out = await setup()
+  const surface = out.renderer.createScrollbackSurface()
+  try {
+    const snapshot = entryWriter({
+      commit: reasoning("thought"),
+      theme: RUN_THEME_FALLBACK,
+    })({
+      width: surface.width,
+      widthMethod: out.renderer.widthMethod,
+      tailColumn: 0,
+      renderContext: surface.renderContext,
+    })
+    const box = snapshot.root.getChildren()[0] as BoxRenderable
+    expect(box.border).toEqual(["left"])
+    expect(box.getChildren()[0]).toBeInstanceOf(CodeRenderable)
+    snapshot.root.destroyRecursively()
+    snapshot.teardown?.()
+  } finally {
+    surface.destroy()
+    out.scrollback.destroy()
+  }
+})
 
 test("static scrollback owns its bound style without releasing the source theme", async () => {
   const out = await setup()

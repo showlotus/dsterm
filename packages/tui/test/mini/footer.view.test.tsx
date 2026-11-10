@@ -28,7 +28,7 @@ import { RunFooterView } from "../../src/mini/footer.view"
 import { RunFooter } from "../../src/mini/footer"
 import { RunEntryContent } from "../../src/mini/scrollback.writer"
 import { RUN_THEME_FALLBACK, RUN_THEME_FALLBACK_LIGHT, resolveRunTheme, type RunTheme } from "../../src/mini/theme"
-import { BLOCK_SOFT_SLIDE, SEED_MONO, WORK_SPINNERS } from "../../src/ui/one-cell-motion"
+import { SEED_MONO, WORK_SPINNERS } from "../../src/ui/one-cell-motion"
 import { resolveMiniSettings } from "../../src/mini/runtime.boot"
 import { applyMiniSettingChange } from "../../src/mini/verbosity"
 import type {
@@ -183,7 +183,9 @@ async function renderFooter(
   const [state, setState] = footerState(input.state)
   const [queuedPrompts, setQueuedPrompts] = createSignal(input.queuedPrompts ?? [])
   const config = { ...(input.tuiConfig ?? tuiConfig), animations: input.tuiConfig?.animations ?? false }
-  const [miniSettings, setMiniSettings] = createSignal<MiniSettings>(input.miniSettings ?? resolveMiniSettings())
+  const [miniSettings, setMiniSettings] = createSignal<MiniSettings>(
+    input.miniSettings ?? resolveMiniSettings({ mini: { status_agent: "show" } }),
+  )
   function Harness() {
     return (
       <Keymap.Provider config={config}>
@@ -547,17 +549,17 @@ test("mini preserves mentionless images through draft edits and a rejected submi
   }
 })
 
-test("direct footer leads with the active agent and default model", async () => {
-  const app = await renderFooter({ state: { model: "Default model" } })
+test("direct footer leads with the active agent and hides the empty model label", async () => {
+  const app = await renderFooter({ state: { model: "" } })
   try {
     await app.renderOnce()
     const frame = app.captureCharFrame()
     expect(
       frame
         .split("\n")
-        .find((line) => line.includes("Default model"))
+        .find((line) => line.includes("ctrl+p menu"))
         ?.trimEnd(),
-    ).toBe("Build · Default model · ctrl+p menu")
+    ).toBe("Build · ctrl+p menu")
     expect(frame).not.toContain("BUILD")
   } finally {
     app.cleanup()
@@ -1056,11 +1058,12 @@ test.each([false, true])("settings change preferences and preview the work spinn
     expect(settings().mono).toBe(true)
     await app.mockInput.typeText("spinner")
     await app.renderOnce()
-    expect(app.captureCharFrame()).toContain("soft slide")
+    expect(app.captureCharFrame()).toContain("braille dots")
     for (const [key, value] of [
-      ["ARROW_RIGHT", "block-soft-sweep"],
-      ["ARROW_LEFT", "block-soft-slide"],
+      ["ARROW_RIGHT", "block-soft-slide"],
+      ["ARROW_LEFT", "braille-dots"],
       ["ARROW_LEFT", "seed"],
+      ["ARROW_RIGHT", "braille-dots"],
       ["ARROW_RIGHT", "block-soft-slide"],
       ["ARROW_RIGHT", "block-soft-sweep"],
       ["ARROW_RIGHT", "block-low-comet"],
@@ -2084,7 +2087,7 @@ test.each([false, true])("working marker stays visible with animations=%s and st
     await app.renderOnce()
     const line = app.captureCharFrame().split("\n")[footerStatusline(app.renderer.root).y]
     expect(line).toContain(" esc stop")
-    expect(animations ? BLOCK_SOFT_SLIDE.frames : ["\u25aa"]).toContain(Array.from(line)[0]!)
+    expect(animations ? WORK_SPINNERS["braille-dots"]!.frames : ["\u25aa"]).toContain(Array.from(line)[0]!)
     expect(app.renderer.root.findDescendantById("mini-work-spinner")?.width).toBe(1)
     app.setMiniSettings((settings) => ({ ...settings, work_spinner: "seed" }))
     await app.renderOnce()

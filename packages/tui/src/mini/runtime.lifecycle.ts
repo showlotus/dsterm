@@ -219,7 +219,7 @@ export async function createRuntimeLifecycle(input: LifecycleInput): Promise<Lif
     agents: input.agents,
     references: input.references,
     agent: input.agent,
-    modelLabel: input.model ? formatModelLabel(input.model, input.variant) : "Default model",
+    modelLabel: input.model ? formatModelLabel(input.model, input.variant) : "",
     model: input.model,
     variant: input.variant,
     first: input.first,

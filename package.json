@@ -5,6 +5,7 @@
   "packageManager": "bun@1.4.4",
   "scripts": {
     "dev": "cd packages/service && bun run dev",
+    "debug:mini": "cd packages/cli && OPENCODE_DIRECT_TRACE=1 bun run src/index.ts mini",
     "publish:alpha": "cd packages/cli && bun run script/publish.ts"
   },
   "workspaces": {

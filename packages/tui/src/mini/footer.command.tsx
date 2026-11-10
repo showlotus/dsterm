@@ -786,6 +786,14 @@ export function RunSettingsBody(props: {
       keywords: `work spinner animation ${props.settings().work_spinner}`,
       key: "work_spinner",
     },
+    {
+      category: "Terminal",
+      display: "Status agent",
+      footer: saving() === "status_agent" ? "saving" : (props.settings().status_agent ?? "hide"),
+      footerTone: saving() === "status_agent" ? "running" : "selection",
+      keywords: `agent status footer name ${props.settings().status_agent ?? "hide"}`,
+      key: "status_agent",
+    },
   ])
   const change = (item: SettingEntry, direction = 1) => {
     if (saving()) return

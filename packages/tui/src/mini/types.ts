@@ -415,6 +415,7 @@ export type MiniSettings = {
   shell_output: "show" | "hide"
   turn_summary: "show" | "hide"
   footer: "show" | "hide"
+  status_agent?: "show" | "hide"
   splash: "show" | "hide"
   work_spinner: Config.MiniWorkSpinner
   mono: boolean
@@ -424,7 +425,7 @@ export type MiniVerbosity = "quiet" | "default" | "everything"
 
 export type MiniSettingChange =
   | {
-      [Key in keyof MiniSettings]: { key: Key; value: MiniSettings[Key] }
+      [Key in keyof MiniSettings]-?: { key: Key; value: NonNullable<MiniSettings[Key]> }
     }[keyof MiniSettings]
   | { key: "verbosity"; value: MiniVerbosity }
 

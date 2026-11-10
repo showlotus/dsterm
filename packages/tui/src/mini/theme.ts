@@ -167,7 +167,7 @@ function map(
       system: { body: scrollback(theme.text.muted) },
       user: { body: scrollback(theme.text.base) },
       assistant: { body: scrollback(theme.markdown.text) },
-      reasoning: { body: scrollback(theme.text.muted) },
+      reasoning: { body: scrollback(theme.text.muted), start: scrollback(theme.text.feedback.warning.base) },
       tool: { body: scrollback(theme.text.muted), start: scrollback(theme.text.muted) },
       error: { body: scrollback(theme.text.feedback.error.base) },
     },

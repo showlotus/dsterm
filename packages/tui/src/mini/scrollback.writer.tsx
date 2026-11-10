@@ -9,10 +9,11 @@ import {
   type ScrollbackWriter,
   type SyntaxStyle,
 } from "@opentui/core"
-import { For, Match, Switch, createMemo, onCleanup } from "solid-js"
+import { For, Match, Show, Switch, createMemo, onCleanup } from "solid-js"
 import { entryBody, entryFlags } from "./entry.body"
 import { monoMarkdownRenderable, monoMarkdownTableOptions } from "./mono"
-import { entryColor, entryLook, entrySyntax } from "./scrollback.shared"
+import { entryColor, entryLook, entrySyntax, thinkingSyntax } from "./scrollback.shared"
+import { SplitBorder } from "../ui/border"
 import { toolFiletype, toolStructuredFinal } from "./tool"
 import { RUN_THEME_FALLBACK, transparent, type RunTheme } from "./theme"
 import type { EntryLayout, RunEntryBody, ScrollbackOptions, StreamCommit, TurnSummary } from "./types"
@@ -111,6 +112,21 @@ export function RunEntryContent(props: {
     const next = body()
     return next.type === "code" ? next : undefined
   })
+  const quote = createMemo(() => props.commit.kind === "reasoning" && props.opts?.mono !== true)
+  const CodeBlock = () => (
+    <code
+      ref={(node: Renderable) => borrowers.push(node)}
+      width="100%"
+      wrapMode="word"
+      filetype={code()!.filetype}
+      drawUnstyledText={false}
+      streaming={streaming()}
+      syntaxStyle={syntax()}
+      conceal={quote()}
+      content={code()!.content}
+      fg={color()}
+    />
+  )
   const structured = createMemo(() => {
     const next = body()
     return next.type === "structured" ? next.snapshot : undefined
@@ -162,17 +178,17 @@ export function RunEntryContent(props: {
         </text>
       </Match>
       <Match when={code()}>
-        <code
-          ref={(node: Renderable) => borrowers.push(node)}
-          width="100%"
-          wrapMode="word"
-          filetype={code()!.filetype}
-          drawUnstyledText={false}
-          streaming={streaming()}
-          syntaxStyle={syntax()}
-          content={code()!.content}
-          fg={color()}
-        />
+        <Show when={quote()} fallback={<CodeBlock />}>
+          <box
+            width="100%"
+            border={["left"]}
+            customBorderChars={SplitBorder.customBorderChars}
+            borderColor={theme().block.faint}
+            paddingLeft={1}
+          >
+            <CodeBlock />
+          </box>
+        </Show>
       </Match>
       <Match when={code_snapshot()}>
         <box width="100%" flexDirection="column" gap={1}>
@@ -315,9 +331,11 @@ export function RunEntryContent(props: {
               width="100%"
               syntaxStyle={syntax()}
               streaming={streaming()}
+              internalBlockMode="top-level"
+              conceal={!mono}
               content={markdown()!.content}
               fg={color()}
-              tableOptions={mono ? monoMarkdownTableOptions : { widthMode: "content" }}
+              tableOptions={mono ? monoMarkdownTableOptions : { style: "grid", cellPaddingX: 1 }}
             />
           )}
         </For>
@@ -334,7 +352,10 @@ export function entryWriter(input: {
 }): ScrollbackWriter {
   return createScrollbackWriter((ctx) => {
     const theme = input.theme ?? RUN_THEME_FALLBACK
-    const syntax = entrySyntax(theme, ctx.renderContext.nativeScene)
+    const syntax =
+      input.commit.kind === "reasoning"
+        ? thinkingSyntax(theme, ctx.renderContext.nativeScene)
+        : entrySyntax(theme, ctx.renderContext.nativeScene)
     // The writer tears down its Solid root after destroying the snapshot tree.
     onCleanup(() => syntax.destroy())
     return (

@@ -1,4 +1,5 @@
 import { octantGlyph } from "./subcell"
+import { SPINNER_FRAMES } from "../component/spinner-frames"
 import type { Config } from "../config"
 
 export type OneCellMotion = {
@@ -99,6 +100,7 @@ export const WORK_SPINNERS = {
   crosshatch: { frames: Array.from("\u25a7\u25a9\u25a8\u25a9"), interval: 240 },
   "density-wave": { frames: Array.from("\u2591\u2591\u2591\u2592\u2593\u2588\u2593\u2592"), interval: 160 },
   seed: SEED_WORK,
+  "braille-dots": { frames: [...SPINNER_FRAMES], interval: 80 },
 } satisfies Record<Config.MiniWorkSpinner, OneCellMotion>
 
 export const SEED_LAUNCH: OneCellMotion = {

@@ -721,6 +721,115 @@ describe("V2 mini transport", () => {
     await transport.close()
   })
 
+  test("streams websearch answer text live when tools are disabled", async () => {
+    const events = feed()
+    events.push(connected())
+    const ui = footer()
+    const transport = await createSessionTransport({
+      sdk: sdk({ streams: [events], messages: { ses_1: [] } }),
+      sessionID: "ses_1",
+      thinking: false,
+      tools: false,
+      footer: ui.api,
+    })
+    const tokens = { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } }
+
+    events.push({
+      id: "evt_search_start",
+      created: 1,
+      type: "session.tool.input.started",
+      durable: durable("ses_1", 1),
+      data: { sessionID: "ses_1", assistantMessageID: "msg_answer", id: "search_1", name: "websearch" },
+    })
+    events.push({
+      id: "evt_search_success",
+      created: 2,
+      type: "session.tool.success",
+      durable: durable("ses_1", 2, 2),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_answer",
+        id: "search_1",
+        executed: true,
+        content: [{ type: "text", text: "{}" }],
+      },
+    })
+    events.push({
+      id: "evt_answer_1",
+      created: 3,
+      type: "session.text.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_answer", ordinal: 0, delta: "上海今天" },
+    })
+    while (!ui.commits.some((commit) => commit.text === "上海今天")) await Bun.sleep(0)
+    events.push({
+      id: "evt_answer_2",
+      created: 4,
+      type: "session.text.delta",
+      data: { sessionID: "ses_1", assistantMessageID: "msg_answer", ordinal: 0, delta: "多云" },
+    })
+    while (!ui.commits.some((commit) => commit.text === "多云")) await Bun.sleep(0)
+    expect(
+      ui.commits.filter((commit) => commit.kind === "assistant" || commit.kind === "tool").map((commit) => commit.text),
+    ).toEqual(["上海今天", "多云"])
+    events.push({
+      id: "evt_answer_step",
+      created: 5,
+      type: "session.step.ended",
+      durable: durable("ses_1", 3),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_answer",
+        finish: "stop",
+        cost: 0,
+        tokens,
+      },
+    })
+    await transport.close()
+  })
+
+  test("hydrated websearch answers stay visible when tools are disabled", async () => {
+    const events = feed()
+    events.push(connected())
+    const ui = footer()
+    const transport = await createSessionTransport({
+      sdk: sdk({
+        streams: [events],
+        messages: {
+          ses_1: [
+            {
+              id: "msg_answer",
+              type: "assistant",
+              agent: "build",
+              model: { providerID: "test", id: "model" },
+              content: [
+                canonicalToolPart("websearch", {
+                  status: "completed",
+                  input: { query: "上海 天气" },
+                  content: [{ type: "text", text: "{}" }],
+                }),
+                { type: "text", text: "上海今天多云" },
+              ],
+              time: { created: 2, completed: 3 },
+            },
+            { id: "msg_user", type: "user", text: "上海天气", files: [], agents: [], time: { created: 1 } },
+          ],
+        },
+      }),
+      sessionID: "ses_1",
+      thinking: false,
+      tools: false,
+      replay: true,
+      footer: ui.api,
+    })
+    while (!ui.commits.some((commit) => commit.text === "上海今天多云")) await Bun.sleep(0)
+    expect(
+      ui.commits
+        .filter((commit) => commit.kind === "user" || commit.kind === "assistant" || commit.kind === "tool")
+        .map((commit) => commit.text),
+    ).toEqual(["上海天气", "上海今天多云"])
+    await transport.close()
+  })
+
   test("hides tool-side assistant narration from hydrated history when tools are disabled", async () => {
     const events = feed()
     events.push(connected())
@@ -2247,6 +2356,17 @@ describe("V2 mini transport", () => {
       },
     })
     events.push({
+      id: "evt_reasoning_start",
+      created: 0,
+      type: "session.reasoning.started",
+      durable: durable("ses_1", 2),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        ordinal: 0,
+      },
+    })
+    events.push({
       id: "evt_reasoning",
       created: 0,
       type: "session.reasoning.delta",
@@ -2258,14 +2378,14 @@ describe("V2 mini transport", () => {
       },
     })
     await Bun.sleep(0)
-    expect(live.map((commit) => commit.text)).toEqual(["hello", "Thinking: thought"])
+    expect(live.map((commit) => commit.text)).toEqual(["hello", "Thinking", "thought"])
 
     await transport.replayOnResize({
       localRows: () => live.map((commit) => ({ commit })),
       reset: async () => {},
     })
 
-    expect(ui.commits.slice(-2).map((commit) => commit.text)).toEqual(["hello", "Thinking: thought"])
+    expect(ui.commits.slice(-3).map((commit) => commit.text)).toEqual(["hello", "Thinking", "thought"])
     await transport.close()
   })
 
@@ -2548,9 +2668,9 @@ describe("V2 mini transport", () => {
     })
 
     expect(ui.commits.map((item) => item.text)).toEqual([
-      "Thinking: first thought",
+      "first thought",
       "first answer",
-      "Thinking: second thought",
+      "second thought",
       "second answer",
     ])
     await transport.close()
@@ -2581,7 +2701,7 @@ describe("V2 mini transport", () => {
     })
     await Bun.sleep(0)
 
-    expect(ui.commits.at(-1)?.text).toBe("Thinking: considering")
+    expect(ui.commits.at(-1)?.text).toBe("considering")
     await transport.close()
   })
 

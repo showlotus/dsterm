@@ -6,6 +6,20 @@ export function entrySyntax(theme: RunTheme, owner: NativeResourceOwner): Syntax
   return SyntaxStyle.fromStyles(theme.block.syntax?.getAllStyles() ?? {}, owner)
 }
 
+export function thinkingSyntax(theme: RunTheme, owner: NativeResourceOwner): SyntaxStyle {
+  const syntax = theme.block.syntax
+  if (!syntax) {
+    return SyntaxStyle.fromStyles({}, owner)
+  }
+
+  return SyntaxStyle.fromStyles(
+    Object.fromEntries(
+      syntax.getRegisteredNames().map((name) => [name, { ...syntax.getStyle(name), fg: theme.block.muted }]),
+    ),
+    owner,
+  )
+}
+
 function entryFailed(commit: StreamCommit): boolean {
   return commit.kind === "tool" && (commit.toolState === "error" || commit.part?.state.status === "error")
 }
@@ -42,6 +56,12 @@ export function entryLook(commit: StreamCommit, theme: RunEntryTheme): { fg: Col
   }
 
   if (commit.kind === "reasoning") {
+    if (commit.phase === "start") {
+      return {
+        fg: theme.reasoning.start ?? theme.reasoning.body,
+      }
+    }
+
     return {
       fg: theme.reasoning.body,
     }

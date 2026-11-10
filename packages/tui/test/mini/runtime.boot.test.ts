@@ -44,8 +44,9 @@ describe("run runtime boot", () => {
       shell_output: "hide",
       turn_summary: "show",
       footer: "show",
+      status_agent: "hide",
       splash: "show",
-      work_spinner: "block-soft-slide",
+      work_spinner: "braille-dots",
       mono: false,
     })
     expect(
@@ -67,6 +68,7 @@ describe("run runtime boot", () => {
       shell_output: "show",
       turn_summary: "hide",
       footer: "hide",
+      status_agent: "hide",
       splash: "hide",
       work_spinner: "block-low-comet",
       mono: true,
