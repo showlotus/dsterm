@@ -73,6 +73,32 @@ function authHeaders(creds: Credentials, powResponse?: string) {
   return headers
 }
 
+const TRANSIENT_ERROR = /ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|socket connection was closed|ConnectionClosed|Connection terminated|Connection reset|fetch failed/i
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function isTransientError(err: unknown): boolean {
+  if (err instanceof DeepseekError) return false
+  const text = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  return TRANSIENT_ERROR.test(text)
+}
+
+export async function fetchWithRetry(url: string, init?: RequestInit, retries = 2): Promise<Response> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, init)
+    } catch (err) {
+      lastErr = err
+      if (attempt === retries || !isTransientError(err)) throw err
+      const backoff = 300 * 2 ** attempt
+      log(`[dsterm] 网络瞬时错误，${backoff}ms 后重试 (${attempt + 1}/${retries}) ${url}: ${err instanceof Error ? err.message : String(err)}`)
+      await sleep(backoff)
+    }
+  }
+  throw lastErr
+}
+
 async function envelope<T>(resp: Response): Promise<T> {
   const body: any = await resp.json().catch(() => null)
   if (!resp.ok || !body) {
@@ -91,7 +117,7 @@ async function envelope<T>(resp: Response): Promise<T> {
 // ── 账号会话 ──
 
 export async function createChatSession(creds: Credentials) {
-  const resp = await fetch(`${API_BASE}/chat_session/create`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat_session/create`, {
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ agent: "chat" }),
@@ -101,7 +127,7 @@ export async function createChatSession(creds: Credentials) {
 }
 
 export async function deleteChatSession(creds: Credentials, chatSessionId: string) {
-  const resp = await fetch(`${API_BASE}/chat_session/delete`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat_session/delete`, {
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ chat_session_id: chatSessionId }),
@@ -110,7 +136,7 @@ export async function deleteChatSession(creds: Credentials, chatSessionId: strin
 }
 
 export async function renameChatSession(creds: Credentials, chatSessionId: string, title: string) {
-  const resp = await fetch(`${API_BASE}/chat_session/update_title`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat_session/update_title`, {
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ chat_session_id: chatSessionId, title }),
@@ -132,7 +158,7 @@ export async function uploadFile(creds: Credentials, file: { name: string; mime:
   const result = await solvePoW(pow, wasm)
   const form = new FormData()
   form.append("file", new Blob([file.bytes], { type: file.mime }), file.name)
-  const resp = await fetch(`${API_BASE}/file/upload_file`, {
+  const resp = await fetchWithRetry(`${API_BASE}/file/upload_file`, {
     method: "POST",
     headers: authHeaders(creds, powHeader(result)),
     body: form,
@@ -142,7 +168,7 @@ export async function uploadFile(creds: Credentials, file: { name: string; mime:
 
 export async function fetchFiles(creds: Credentials, fileIds: string[]) {
   const query = fileIds.join(",")
-  const resp = await fetch(`${API_BASE}/file/fetch_files?file_ids=${encodeURIComponent(query)}`, {
+  const resp = await fetchWithRetry(`${API_BASE}/file/fetch_files?file_ids=${encodeURIComponent(query)}`, {
     headers: authHeaders(creds),
   })
   return envelope<{ files: UploadedFile[] }>(resp)
@@ -172,7 +198,7 @@ export async function fetchSessions(creds: Credentials, cursor?: { direction: "g
   const query = cursor
     ? `?${cursor.direction}_cursor.pinned=false&${cursor.direction}_cursor.updated_at=${cursor.updatedAt}&count=${cursor.count ?? 100}`
     : ""
-  const resp = await fetch(`${API_BASE}/chat_session/fetch_page${query}`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat_session/fetch_page${query}`, {
     headers: authHeaders(creds),
   })
   return envelope<{ chat_sessions: UpstreamSession[]; has_more?: boolean }>(resp)
@@ -189,7 +215,7 @@ export interface UpstreamMessage {
 
 export async function fetchHistory(creds: Credentials, chatSessionId: string) {
   const query = `?chat_session_id=${encodeURIComponent(chatSessionId)}`
-  const resp = await fetch(`${API_BASE}/chat/history_messages${query}`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat/history_messages${query}`, {
     headers: authHeaders(creds),
   })
   return envelope<{ chat_session: UpstreamSession; chat_messages: UpstreamMessage[] }>(resp)
@@ -201,7 +227,8 @@ let wasmBytesCache: Uint8Array | undefined
 
 export async function loadWasm() {
   if (!wasmBytesCache) {
-    const resp = await fetch(WASM_URL)
+    const resp = await fetchWithRetry(WASM_URL)
+    if (!resp.ok) throw new DeepseekError(resp.status, `wasm 下载失败: HTTP ${resp.status}`)
     wasmBytesCache = new Uint8Array(await resp.bytes())
   }
   return wasmBytesCache
@@ -248,7 +275,7 @@ export function powHeader(result: PowResult) {
 }
 
 export async function createPowChallenge(creds: Credentials, targetPath: string) {
-  const resp = await fetch(`${API_BASE}/chat/create_pow_challenge`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat/create_pow_challenge`, {
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ target_path: targetPath }),
@@ -266,7 +293,7 @@ export class HifCache {
   constructor(private creds: Credentials) {}
 
   private async fetchOne(url: string): Promise<{ value: string; ttl: number }> {
-    const resp = await fetch(url, { headers: clientHeaders(this.creds.deviceId) })
+    const resp = await fetchWithRetry(url, { headers: clientHeaders(this.creds.deviceId) })
     const ttlHeader = resp.headers.get("x-hif-ttl")
     const ttl = ttlHeader ? Number(ttlHeader) || 600 : 600
     const body: any = await resp.json()
@@ -328,11 +355,11 @@ export async function createCompletionStream(creds: Credentials, payload: Comple
   }
   if (tokens.leim) headers["x-hif-leim"] = tokens.leim
   if (tokens.dliq) headers["x-hif-dliq"] = tokens.dliq
-  const resp = await fetch(`${API_BASE}/chat/completion`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat/completion`, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
-  })
+  }, 1)
   if (!resp.ok || !resp.body) {
     const text = await resp.text().catch(() => "")
     throw new DeepseekError(resp.status, `completion HTTP ${resp.status}: ${text.slice(0, 300)}`)
@@ -661,7 +688,7 @@ export async function* parseCompletionStream(
 }
 
 export async function stopStream(creds: Credentials, chatSessionId: string, messageId: number) {
-  const resp = await fetch(`${API_BASE}/chat/stop_stream`, {
+  const resp = await fetchWithRetry(`${API_BASE}/chat/stop_stream`, {
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ chat_session_id: chatSessionId, message_id: messageId }),
