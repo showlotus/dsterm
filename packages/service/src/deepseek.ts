@@ -73,7 +73,7 @@ function authHeaders(creds: Credentials, powResponse?: string) {
   return headers
 }
 
-const TRANSIENT_ERROR = /ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|socket connection was closed|ConnectionClosed|Connection terminated|Connection reset|fetch failed/i
+const TRANSIENT_ERROR = /ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|socket connection was closed|ConnectionClosed|Connection terminated|Connection reset|fetch failed|TimeoutError/i
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -83,15 +83,15 @@ function isTransientError(err: unknown): boolean {
   return TRANSIENT_ERROR.test(text)
 }
 
-export async function fetchWithRetry(url: string, init?: RequestInit, retries = 2): Promise<Response> {
+export async function fetchWithRetry(url: string, init?: RequestInit, retries = 2, timeoutMs?: number): Promise<Response> {
   let lastErr: unknown
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await fetch(url, init)
+      return await fetch(url, timeoutMs ? { ...init, signal: AbortSignal.timeout(timeoutMs) } : init)
     } catch (err) {
       lastErr = err
       if (attempt === retries || !isTransientError(err)) throw err
-      const backoff = 300 * 2 ** attempt
+      const backoff = Math.min(500 * 2 ** attempt, 5000)
       log(`[dsterm] 网络瞬时错误，${backoff}ms 后重试 (${attempt + 1}/${retries}) ${url}: ${err instanceof Error ? err.message : String(err)}`)
       await sleep(backoff)
     }
@@ -121,7 +121,7 @@ export async function createChatSession(creds: Credentials) {
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ agent: "chat" }),
-  })
+  }, 5)
   const biz = await envelope<{ chat_session?: { id: number }; id?: number }>(resp)
   return biz.chat_session ?? biz
 }
@@ -162,7 +162,7 @@ export async function uploadFile(creds: Credentials, file: { name: string; mime:
     method: "POST",
     headers: authHeaders(creds, powHeader(result)),
     body: form,
-  })
+  }, 5)
   return envelope<UploadedFile>(resp)
 }
 
@@ -227,7 +227,7 @@ let wasmBytesCache: Uint8Array | undefined
 
 export async function loadWasm() {
   if (!wasmBytesCache) {
-    const resp = await fetchWithRetry(WASM_URL)
+    const resp = await fetchWithRetry(WASM_URL, undefined, 5)
     if (!resp.ok) throw new DeepseekError(resp.status, `wasm 下载失败: HTTP ${resp.status}`)
     wasmBytesCache = new Uint8Array(await resp.bytes())
   }
@@ -279,7 +279,7 @@ export async function createPowChallenge(creds: Credentials, targetPath: string)
     method: "POST",
     headers: { ...authHeaders(creds), "content-type": "application/json" },
     body: JSON.stringify({ target_path: targetPath }),
-  })
+  }, 5)
   const biz = await envelope<{ challenge?: Challenge } & Partial<Challenge>>(resp)
   return biz.challenge ?? (biz as Challenge)
 }
@@ -287,44 +287,49 @@ export async function createPowChallenge(creds: Credentials, targetPath: string)
 // ── HIF 风控令牌 ──
 
 type HifPair = { leim?: string; dliq?: string; leimAt?: number; dliqAt?: number }
+type HifHost = "leim" | "dliq"
 
 export class HifCache {
   private cache: HifPair = {}
+  private cooldownUntil: Record<HifHost, number> = { leim: 0, dliq: 0 }
+  private inflight: Partial<Record<HifHost, Promise<void>>> = {}
   constructor(private creds: Credentials) {}
 
-  private async fetchOne(url: string): Promise<{ value: string; ttl: number }> {
-    const resp = await fetchWithRetry(url, { headers: clientHeaders(this.creds.deviceId) })
-    const ttlHeader = resp.headers.get("x-hif-ttl")
-    const ttl = ttlHeader ? Number(ttlHeader) || 600 : 600
+  private async fetchOne(url: string): Promise<string> {
+    const resp = await fetchWithRetry(url, { headers: clientHeaders(this.creds.deviceId) }, 1, 3000)
     const body: any = await resp.json()
     if (body.code !== 0 || body.data?.biz_code !== 0) throw new DeepseekError(-3, "HIF 令牌获取失败")
-    return { value: body.data.biz_data.value, ttl }
+    return body.data.biz_data.value
+  }
+
+  private refresh(host: HifHost, url: string): Promise<void> {
+    if (this.inflight[host]) return this.inflight[host]!
+    if (Date.now() < this.cooldownUntil[host]) return Promise.resolve()
+    const job = this.fetchOne(url)
+      .then((value) => {
+        this.cache[host] = value
+        this.cache[`${host}At`] = Date.now()
+      })
+      .catch(() => {
+        this.cooldownUntil[host] = Date.now() + 60_000
+      })
+      .finally(() => {
+        if (this.inflight[host] === job) delete this.inflight[host]
+      })
+    this.inflight[host] = job
+    return job
   }
 
   async tokens(): Promise<{ leim?: string; dliq?: string }> {
     const margin = 30_000
     const jobs: Promise<void>[] = []
     if (!this.cache.leim || Date.now() - (this.cache.leimAt ?? 0) > 600_000 - margin) {
-      jobs.push(
-        this.fetchOne("https://hif-leim.deepseek.com/query")
-          .then(({ value, ttl }) => {
-            this.cache.leim = value
-            this.cache.leimAt = Date.now() + ttl - 600_000 + 600_000
-          })
-          .catch(() => undefined),
-      )
+      jobs.push(this.refresh("leim", "https://hif-leim.deepseek.com/query"))
     }
     if (!this.cache.dliq || Date.now() - (this.cache.dliqAt ?? 0) > 600_000 - margin) {
-      jobs.push(
-        this.fetchOne("https://hif-dliq.deepseek.com/query")
-          .then(({ value, ttl }) => {
-            this.cache.dliq = value
-            this.cache.dliqAt = Date.now()
-          })
-          .catch(() => undefined),
-      )
+      jobs.push(this.refresh("dliq", "https://hif-dliq.deepseek.com/query"))
     }
-    await Promise.all(jobs)
+    await Promise.race([Promise.all(jobs), sleep(1000)])
     return { leim: this.cache.leim, dliq: this.cache.dliq }
   }
 }
