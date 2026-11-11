@@ -17,9 +17,9 @@
 
 ## [0.1.1](https://github.com/showlotus/dsterm/compare/v0.1.0...v0.1.1) (2026-11-10)
 
-# [0.1.0](https://github.com/showlotus/dsterm/compare/v0.1.0-alpha.7...v0.1.0) (2026-11-10)
+## [0.1.0](https://github.com/showlotus/dsterm/compare/v0.1.0-alpha.7...v0.1.0) (2026-11-10)
 
-# [0.1.0-alpha.7](https://github.com/showlotus/dsterm/compare/b712941042807f455a2f9b565652ee9b11cf5341...v0.1.0-alpha.7) (2026-11-10)
+## [0.1.0-alpha.7](https://github.com/showlotus/dsterm/compare/b712941042807f455a2f9b565652ee9b11cf5341...v0.1.0-alpha.7) (2026-11-10)
 
 
 ### Bug Fixes
